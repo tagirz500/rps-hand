@@ -80,3 +80,5 @@ console.log('PASS: gentle forward/backward lean, return to neutral, angle-indepe
 assert.ok(gentleHeadTranslation([.1,0,0],.45)[0]>0 && gentleHeadTranslation([-.1,0,0],.45)[0]<0);
 assert.deepEqual(gentleHeadTranslation([.1,.02,-.1],.45,0),gentleHeadTranslation([.1,.02,-.1],.45,1.2));
 console.log('PASS: left/right movement and position independent of head angle');
+
+const responsive=new ViewPose();responsive.mode='first';responsive.sensitivity=1.5;responsive.receive(neutral,0);responsive.receive({...neutral,yaw:.3},20);responsive.update(20,.016);assert.ok(Math.abs(responsive.yaw)>.28);responsive.update(36,.016);assert.ok(Math.abs(responsive.yaw)>.36);console.log('PASS: rapid head motion reaches over 85 percent of target within two 60Hz frames');

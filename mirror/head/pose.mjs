@@ -38,7 +38,8 @@ export class WindowPose {
   }
   update(now, dt, enabled = true) {
     const target = enabled && now-this.seen < 650 ? this.target : [0,0,0];
-    const a = 1-Math.exp(-Math.min(dt,.1)/.085);
+    const fast=Math.hypot(...target.map((v,i)=>v-this.eye[i]))>.025;
+    const a = 1-Math.exp(-Math.min(dt,.1)/(fast?.012:.025));
     this.eye = this.eye.map((v,i) => enabled ? v+(target[i]-v)*a : 0);
     return this.eye;
   }
@@ -90,7 +91,8 @@ export class ViewPose {
       yaw=this.mode==='first'?deadzone(physicalYaw)*this.sensitivity:physicalYaw*.65;
       pitch=this.mode==='first'?deadzone(physicalPitch)*this.sensitivity*.6:physicalPitch*.65;
     }
-    const a = 1 - Math.exp(-Math.min(dt, .1) / .15);
+    const fast=Math.max(Math.abs(physicalYaw-this.physicalYaw),Math.abs(physicalPitch-this.physicalPitch))>.06;
+    const a = 1 - Math.exp(-Math.min(dt, .1) / (fast?.012:.03));
     this.physicalYaw+=(physicalYaw-this.physicalYaw)*a;
     this.physicalPitch+=(physicalPitch-this.physicalPitch)*a;
     this.yaw += (clamp(yaw, this.mode==='first'?Math.PI:.24) - this.yaw) * a;

@@ -1,3 +1,5 @@
+CURRENT REQUEST: HEAD ONLY. Hands are fully removed from the active mirror route, including hand and interaction modules. Do not restore hands without a new explicit request. Faster face tracking uses GPU with CPU fallback, roughly 30fps capture cap and 12-30ms adaptive filtering. Current implementation details are in mirror/head/README.md. All notes below are historical.
+
 LATEST: Hands are restored at user request. Third person is the default; First person + mirror shows the reflected head and hands. Head angles and 3D position are separate. Turn gain defaults to 1.5x, translation gain is 2x with bounded displacement. See LiveHands.js for the restored worker/filter/model integration. The older head-only note below is historical.
 
 CURRENT: mirror/index.html is now HEAD-ONLY at the user's request: no hand detector, hand renderer, or grabbing UI. It retains amplified head turns and gentle bounded forward/backward leaning. The earlier complete hand interaction page is available in commit a831b7f; hand assets and modules remain for reuse. See mirror/head/README.md for current behaviour.

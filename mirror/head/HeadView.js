@@ -1,4 +1,4 @@
-import { ViewPose, WindowPose, windowFrustum, firstPersonOrigin, gentleHeadTranslation } from './pose.mjs?v=body6';
+import { ViewPose, WindowPose, windowFrustum, firstPersonOrigin, gentleHeadTranslation } from './pose.mjs?v=fast7';
 
 export class HeadView {
   constructor(video, camera, { mode, recenter, status, sensitivity, hfov = Math.PI/3 }) {
@@ -6,14 +6,15 @@ export class HeadView {
     this.pose = new ViewPose(); this.window = new WindowPose(); this.mode = mode.value; this.hfov = hfov; this.busy = false; this.ready = false; this.failed = false;
     this.pose.mode = this.mode;
     this.sensitivity=sensitivity;
+    this.performance={fps:0,frames:0,start:performance.now(),latency:0,delegate:""};
     this.lastCapture = -Infinity; this.lastVideo = -1;
-    this.worker = new Worker(new URL('./worker.mjs?v=headonly4', import.meta.url), { type: 'module' });
+    this.worker = new Worker(new URL('./worker.mjs?v=fast7', import.meta.url), { type: 'module' });
     const fail = () => { this.failed = true; this.busy = false; this.worker.terminate(); clearTimeout(this.timer); };
     this.worker.onerror = fail;
     this.worker.onmessage = ({ data }) => {
       if (data.type === 'error') return fail();
-      if (data.type === 'ready') { this.ready = true; clearTimeout(this.timer); }
-      if (data.type === 'pose') { this.busy = false; const now=performance.now(); this.pose.receive(data.pose, now); this.window.receive(data.pose, now, video.videoWidth/video.videoHeight, this.hfov); }
+      if (data.type === 'ready') { this.performance.delegate=data.delegate; this.ready = true; clearTimeout(this.timer); }
+      if (data.type === 'pose') { this.busy = false; const now=performance.now(); this.performance.frames++; this.performance.latency=now-data.ts; if(now-this.performance.start>=1000){this.performance.fps=Math.round(this.performance.frames*1000/(now-this.performance.start));this.performance.frames=0;this.performance.start=now;} this.pose.receive(data.pose, now); this.window.receive(data.pose, now, video.videoWidth/video.videoHeight, this.hfov); }
     };
     this.timer = setTimeout(fail, 60000);
     mode.onchange = () => { this.mode = mode.value; this.pose.mode = mode.value; this.pose.recenter(); this.window.recenter(); };
@@ -21,10 +22,10 @@ export class HeadView {
     addEventListener('pagehide', () => { this.worker.terminate(); clearTimeout(this.timer); }, { once: true });
   }
   async capture(now) {
-    if (this.failed || !this.ready || this.busy || this.pose.mode === 'off' || document.hidden || now-this.lastCapture < 100 || this.video.readyState < 2 || this.video.currentTime === this.lastVideo) return;
+    if (this.failed || !this.ready || this.busy || this.pose.mode === 'off' || document.hidden || now-this.lastCapture < 30 || this.video.readyState < 2 || this.video.currentTime === this.lastVideo) return;
     this.busy = true; this.lastCapture = now; this.lastVideo = this.video.currentTime;
     try {
-      const width = Math.min(480, this.video.videoWidth);
+      const width = Math.min(384, this.video.videoWidth);
       const frame = await createImageBitmap(this.video, { resizeWidth: width, resizeHeight: Math.round(width*this.video.videoHeight/this.video.videoWidth) });
       this.worker.postMessage({ frame, ts: now }, [frame]);
     } catch { this.busy = false; this.failed = true; this.worker.terminate(); }
@@ -44,6 +45,6 @@ export class HeadView {
       this.camera.projectionMatrix.makePerspective(f.left,f.right,f.top,f.bottom,this.camera.near,this.camera.far);
       this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
     }
-    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Keep your face in view · look straight and Recenter' : 'Turn to look · lean closer to move forward · lean back to move backward';
+    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Keep your face in view · look straight and Recenter' : `Head: ${this.performance.fps} fps · ${Math.round(this.performance.latency)} ms · turn or lean to move`;
   }
 }
