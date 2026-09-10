@@ -25,12 +25,16 @@
   #play:disabled { opacity: .4; }
   #mode, #reset, #view { background: #2a3145; color: #fff; padding: 10px 16px; font-size: 14px; }
   #mode { left: 12px; bottom: 12px; } #reset { right: 12px; top: 12px; } #view { left: 12px; top: 12px; }
+  #rig-status { position:absolute;bottom:64px;left:12px;right:12px;font-size:13px;color:#d3e4dd;text-shadow:0 1px 3px #000;pointer-events:none; }
+  #joints { right:12px;top:58px;padding:9px 12px;font-size:13px;background:#273449;color:#d3e4dd; }
+  #sample { position:absolute;left:12px;top:105px;max-width:calc(100% - 24px);font-size:14px;padding:7px;background:#172131;color:#fff;border:1px solid #526070;border-radius:6px;z-index:3; }
 </style>
 </head>
 <body>
 <div id="app">
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
+    <select id="sample" aria-label="Camera or sample pose"><option value="">Live camera</option><option value="open-hand.jpg">Open hand reference</option><option value="victory.jpg">Scissors photo</option><option value="thumbs_up.jpg">Thumbs-up photo</option><option value="pointing_up.jpg">Pointing photo (left hand)</option><option value="thumbs_down.jpg">Thumbs-down photo</option><option value="woman_hands.jpg">Two hands photo</option></select>
     <canvas id="ov"></canvas>
     <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 7)</div></div>
     <div class="hud" id="bottom"><div id="score">SCORE you 0 : 0 cpu</div><div id="game">Tap PLAY for a round</div></div>
@@ -38,6 +42,8 @@
   </div>
   <div class="pane">
     <canvas id="gl"></canvas>
+    <div id="rig-status">Loading hand models...</div>
+    <button id="joints">JOINTS: ON</button>
     <button id="view">VIEW: first person</button>
     <button id="reset">RESET OBJECTS</button>
     <button id="mode">MODE: predict</button>
@@ -45,14 +51,17 @@
   </div>
 </div>
 
-<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }</script>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/" } }</script>
 <script type="module">
 import * as THREE from "three";
+import { TrackedHand } from "./hand/TrackedHand.js";
 import RAPIER from "https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.20.0/dist/rapier.mjs";
 
 const BUILD = 7;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
+$("sample").value = Q.get("img") || "";
+$("sample").onchange = () => { const q = new URLSearchParams(location.search); if ($("sample").value) q.set("img", $("sample").value); else q.delete("img"); location.search = q.toString(); };
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
 // it; only the absolute depth scale does, so a wrong guess still gives one-for-one relative motion.
 const HFOV = (+Q.get("fov") || 60) * Math.PI / 180;
@@ -283,49 +292,26 @@ $("reset").onclick = resetProps;
 const FAR = { x: 0, y: 10, z: 0 };   // parking spot for the colliders of a hand that is not in view
 
 // --- 3D replica of one hand + its physics colliders ------------------------------------------------
-function makeHand(color = 0xdead8f) {
-  const group = new THREE.Group(); group.visible = false; worldGroup.add(group);
-  const cyl = new THREE.CylinderGeometry(1, 1, 1, 14, 1), sph = new THREE.SphereGeometry(1, 14, 10);
-  const skin = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
-  const mk = g => { const m = new THREE.Mesh(g, skin); m.castShadow = true; group.add(m); return m; };
-  const bones = BONES.map(b => ({ ...b, mesh: mk(cyl) }));
-  const joints = JOINT_R.map(() => mk(sph));
-  const palm = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshStandardMaterial({ color, roughness: 0.6, side: THREE.DoubleSide }));
-  palm.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(27), 3)); palm.castShadow = true; group.add(palm);
-  const skel = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0x78ff78, depthTest: false }));
-  skel.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(CONNECTIONS.length * 6), 3)); skel.renderOrder = 1; group.add(skel);
-  const dots = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xffffff, size: 0.008, depthTest: false }));
-  dots.geometry.setAttribute("position", new THREE.BufferAttribute(new Float32Array(63), 3)); dots.renderOrder = 2; group.add(dots);
-  const UP = new THREE.Vector3(0, 1, 0);
-  const placeCylinder = (mesh, a, b, r) => {
-    const d = b.clone().sub(a), L = d.length();
-    mesh.position.copy(a).addScaledVector(d, 0.5); mesh.scale.set(r, L, r); mesh.quaternion.setFromUnitVectors(UP, d.normalize());
-  };
-  // colliders: one ball per joint + one for the palm, kinematic (driven by tracking, push everything else)
+let jointOverlay = true;
+const replicas = [];
+$("joints").onclick = () => { jointOverlay = !jointOverlay; replicas.forEach(r => r.showJoints(jointOverlay)); $("joints").textContent = "JOINTS: " + (jointOverlay ? "ON" : "OFF"); };
+function makeHand(handedness, replica) {
+  const group = replica.object; group.visible = false; worldGroup.add(group); replicas.push(replica);
+  replica.showJoints(jointOverlay);
   const bodies = Array.from({ length: 22 }, (_, i) => {
     const b = world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(FAR.x, FAR.y, FAR.z));
     world.createCollider(RAPIER.ColliderDesc.ball(i < 21 ? Math.max(JOINT_R[i], 0.01) : 0.035), b); return b;
   });
   return {
     group,
-    draw(pts) {
-      for (const bn of bones) placeCylinder(bn.mesh, pts[bn.a], pts[bn.b], bn.r);
-      joints.forEach((m, i) => { m.position.copy(pts[i]); m.scale.setScalar(JOINT_R[i]); });
-      const pos = palm.geometry.attributes.position; let k = 0;
-      for (const [i1, i2] of PALM_EDGES) for (const i of [0, i1, i2]) pos.setXYZ(k++, pts[i].x, pts[i].y, pts[i].z);
-      pos.needsUpdate = true; palm.geometry.computeVertexNormals();
-      const sp = skel.geometry.attributes.position; let q = 0;
-      for (const [a, b] of CONNECTIONS) for (const i of [a, b]) sp.setXYZ(q++, pts[i].x, pts[i].y, pts[i].z);
-      sp.needsUpdate = true;
-      const dp = dots.geometry.attributes.position; pts.forEach((p, i) => dp.setXYZ(i, p.x, p.y, p.z)); dp.needsUpdate = true;
-      group.visible = true;
-      pts.forEach((p, i) => bodies[i].setNextKinematicTranslation(p));
-      bodies[21].setNextKinematicTranslation(palmCentre(pts));
+    draw(pts, visible = true, side = handedness) {
+      if (visible && replica.update(pts, side)) group.visible = true;
+      pts.forEach((p, i) => bodies[i].setNextKinematicTranslation(visible ? p : FAR));
+      bodies[21].setNextKinematicTranslation(visible ? palmCentre(pts) : FAR);
     },
     hide() { group.visible = false; for (const b of bodies) b.setNextKinematicTranslation(FAR); },
   };
 }
-
 // --- the opponent's hand: a posed hand across the table until a real opponent is networked in ---------
 // Built on the same skeleton: wrist at the origin of a frame (U = finger direction, N = palm normal pointing
 // at you, S = thumb side); each finger is bent by cumulative angles at its three joints.
@@ -404,12 +390,14 @@ async function main() {
   } catch (e) { $("status").textContent = "Camera blocked: " + e.message + "\nAllow the camera and reload."; return; }
 
   frameW = video.videoWidth || video.naturalWidth || frameW; frameH = video.videoHeight || video.naturalHeight || frameH;
+  const [rightModel, leftModel, opponentModel] = await Promise.all([TrackedHand.load(), TrackedHand.load(), TrackedHand.load()]);
+  const models = { Right: rightModel, Left: leftModel };
   const tracker = await makeTracker();
   $("status").remove();
 
   // one slot per hand, keyed by MediaPipe's handedness label
   const slots = { Right: null, Left: null };
-  for (const k in slots) slots[k] = { key: k, name: "?", filt: new OneEuro(63), raw: null, lastSeen: -1e9, img: [0, 0], ext: [0, 0, 0, 0], fit: 0, depth: 0, hand: makeHand() };
+  for (const k in slots) slots[k] = { key: k, name: "?", filt: new OneEuro(63), raw: null, lastSeen: -1e9, img: [0, 0], ext: [0, 0, 0, 0], fit: 0, depth: 0, hand: makeHand(k, models[k]) };
   const imgCentre = lm => PALM.reduce((c, i) => [c[0] + lm[i].x / PALM.length, c[1] + lm[i].y / PALM.length], [0, 0]);
   const dist2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
   // Which slot does a detection belong to? MediaPipe's Left/Right label flickers, so match by position first:
@@ -425,7 +413,7 @@ async function main() {
     for (const d of dets) if (!out.has(d) && free.length) { const s = free.find(x => x.key === d.h.name) ?? free[0]; out.set(d, s); free.splice(free.indexOf(s), 1); }
     return out;
   }
-  const opp = makeHand(0xc99a7a); const oppPts = synthHand("IDLE", OPP.at);   // the opponent's hand, a shade darker
+  const opp = makeHand("Right", opponentModel); const oppPts = synthHand("IDLE", OPP.at);   // the opponent's hand, a shade darker
   let lastT = -1, ts = 0, inflight = false, move = null, nHands = 0, lastRecv = 0, hold = HOLD_MS;
   let stat = { ms: 0, lat: 0, n: 0, t: performance.now() }, prev = performance.now();
 
@@ -442,6 +430,8 @@ async function main() {
     drawOverlay(r.hands.map(h => h.landmarks), video);
     for (const [d, s] of assign(r.hands, recv)) {
       const h = d.h; let T, xu, yv; [T, s.fit, xu, yv] = locate(h.world, h.landmarks, frameW, frameH);
+      // Keep handedness stable through label flicker; reacquire it when a slot is reused.
+      if (!s.rigSide || recv - s.lastSeen >= hold) s.rigSide = h.name in models ? h.name : s.key;
       s.raw = toGL(h.world, T, xu, yv); s.filt.push(s.raw, cap / 1000); s.lastSeen = recv; s.img = d.c; s.name = h.name;
       const pts = retarget(s.filt.x); s.ext = fingersUp(pts); s.depth = -palmCentre(pts).z;
     }
@@ -457,7 +447,7 @@ async function main() {
       if (visible) {
         const lead = Math.min(MAX_LEAD, Math.max(0, (now - s.lastSeen) / 1000 + 0.02));
         const pts = MODES[mode] === "predict" ? s.filt.predict(lead) : MODES[mode] === "smooth" ? s.filt.x : s.raw;
-        s.hand.draw(retarget(pts));
+        s.hand.draw(toVecs(pts), true, s.rigSide);
       } else s.hand.hide();
       if (visible) { move ??= moveFromFingers(s.ext); hud.push(`${s.name[0]} ${s.depth.toFixed(2)}m ${s.ext.filter(Boolean).length}up fit ${(s.fit * 100).toFixed(1)}%`); }
     }
@@ -473,6 +463,7 @@ async function main() {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | mode ${MODES[mode]} | build ${BUILD}`;
       stat = { ms: 0, lat: 0, n: 0, t: now };
     }
+    $("rig-status").textContent = hud.length ? "21 rig joints per hand following tracking" : "Show a hand to begin";
     $("hand").textContent = "HANDS: " + (hud.join("  |  ") || "-");
     $("move").textContent = "MOVE: " + (move ?? "?"); $("move").style.color = move ? "#78ff78" : "#ffc850";
     updateGame(now, move);
