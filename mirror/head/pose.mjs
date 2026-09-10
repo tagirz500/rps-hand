@@ -62,10 +62,10 @@ export function firstPersonOrigin(neutral, aspect, hfov) {
   return [-k*(neutral.centerX-.5)*depth,-k*(neutral.centerY-.5)*depth/aspect,depth];
 }
 
-export function gentleHeadTranslation(offset, depth, lateralGain = 2, depthGain = 2) {
+export function gentleHeadTranslation(offset, depth, lateralGain = 2, depthGain = 2, verticalGain = 2) {
   const scale=depth/.45;
   const gain=v=>Number.isFinite(v)?Math.max(0,Math.min(4,v)):2;
-  const x=clamp(offset[0]*scale*gain(lateralGain),.50), y=clamp(offset[1]*scale*2,.30);
+  const x=clamp(offset[0]*scale*gain(lateralGain),.50), y=clamp(offset[1]*scale*gain(verticalGain),.30);
   const z=clamp(offset[2]*scale*gain(depthGain),.50);
   // Lean is a bounded position offset, not velocity: holding still never drifts.
   return [x,y,z];

@@ -88,3 +88,9 @@ console.log('PASS: independent lateral/depth gains, zero disables each axis, def
 console.log('PASS: left/right movement and position independent of head angle');
 
 const responsive=new ViewPose();responsive.mode='first';responsive.sensitivity=1.5;responsive.receive(neutral,0);responsive.receive({...neutral,yaw:.3},20);responsive.update(20,.016);assert.ok(Math.abs(responsive.yaw)>.28);responsive.update(36,.016);assert.ok(Math.abs(responsive.yaw)>.36);console.log('PASS: rapid head motion reaches over 85 percent of target within two 60Hz frames');
+
+assert.deepEqual(gentleHeadTranslation([.1,.02,-.1],.45,2,2,1),[.2,.02,-.2]);
+assert.deepEqual(gentleHeadTranslation([.1,.02,-.1],.45,2,2,0),[.2,0,-.2]);
+assert.deepEqual(gentleHeadTranslation([0,-.02,0],.45,2,2,4),[0,-.08,0]);
+assert.equal(gentleHeadTranslation([0,1,0],.9,2,2,4)[1],.3);
+console.log('PASS: independent vertical gain, disabled vertical movement, down direction and travel cap');
