@@ -26,7 +26,9 @@
   #play:disabled { opacity: .4; }
   #mode, #reset, #view, #online, #link { background: #2a3145; color: #fff; padding: 10px 16px; font-size: 14px; }
   #mode { left: 12px; bottom: 12px; } #reset { right: 12px; top: 12px; } #view { left: 12px; top: 12px; }
-  #online { right: 12px; top: 12px; } #link { right: 12px; top: 62px; }
+  #online { right: 12px; top: 12px; } #link { right: 12px; top: 62px; } #camBtn { left: 12px; top: 62px; background: #2a3145; color: #fff; padding: 10px 16px; font-size: 14px; }
+  #camp { position: absolute; left: 12px; top: 112px; width: min(92vw, 280px); background: rgba(20,24,36,.94); border-radius: 14px; padding: 10px 12px; z-index: 5; font-size: 13px; }
+  #camp label { display: grid; grid-template-columns: 58px 1fr 44px; align-items: center; gap: 8px; margin: 6px 0; } #camp input { width: 100%; }
   #play { right: 12px; bottom: 12px; background: #78ff78; color: #000; display: none; }
   #net { color: #9fe3ff; font-size: 14px; }
   body.screen #app { grid-template: 1fr / 1fr; } body.screen .pane:first-child { display: none; }
@@ -58,13 +60,21 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 39)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 41)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
     <canvas id="gl"></canvas>
     <div id="pair" hidden><div><p>Scan with the phone, or on the phone tap TRACK MY HAND → PC LINK and enter</p><div class="code" id="pairCode">---</div><div id="qr"></div><p id="pairUrl"></p></div></div>
     <button id="view">VIEW</button>
+    <button id="camBtn">CAM</button>
+    <div id="camp" hidden>
+      <label>FOV <input id="cFov" type="range" min="40" max="110" step="1"><span id="vFov"></span></label>
+      <label>HEIGHT <input id="cHeight" type="range" min="0" max="0.7" step="0.01"><span id="vHeight"></span></label>
+      <label>BACK <input id="cBack" type="range" min="0.1" max="1.5" step="0.01"><span id="vBack"></span></label>
+      <label>TILT <input id="cTilt" type="range" min="-0.8" max="0.5" step="0.01"><span id="vTilt"></span></label>
+      <div style="color:#9aa4b8">first person only; saved on this device</div>
+    </div>
     <button id="mode">MODE: predict</button>
     <button id="online">ONLINE</button>
     <button id="link">PC LINK</button>
@@ -86,7 +96,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 39;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 41;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -424,6 +434,17 @@ const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 8);
 const worldGroup = new THREE.Group(); scene.add(worldGroup);   // everything that must mirror in the selfie view
 let frameW = 640, frameH = 480;   // camera frame size, set once the video is known
 let eyeZ = -0.5;   // first-person eye position, follows my hands so they stay in view (updated in the loop)
+// first-person camera settings, adjustable with the CAM sliders and kept on the device
+const CAM = { fov: 75, height: 0.35, back: 0.55, tilt: -0.15 };
+try { Object.assign(CAM, JSON.parse(localStorage.getItem("rpsh_cam") || "{}")); } catch {}
+function camUI() {
+  for (const [k, id] of [["fov", "Fov"], ["height", "Height"], ["back", "Back"], ["tilt", "Tilt"]]) {
+    const inp = $("c" + id); inp.value = CAM[k]; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : (+CAM[k]).toFixed(2) + " m";
+    inp.oninput = () => { CAM[k] = +inp.value; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : CAM[k].toFixed(2) + " m"; try { localStorage.setItem("rpsh_cam", JSON.stringify(CAM)); } catch {} applyView(true); };
+  }
+}
+$("camBtn").onclick = () => { const p = $("camp"); p.hidden = !p.hidden; if (!p.hidden) camUI(); };
+window.camDbg = { CAM, get camera() { return camera; } };
 const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("video") ? 1 : 0;   // live camera: first person; test stills/clips: mirror   // mirror = the room seen from the phone, mirrored like the video
 $("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); };
 function applyView(force) {
@@ -432,7 +453,7 @@ function applyView(force) {
   if (force || canvas.width !== (w * pr | 0) || canvas.height !== (h * pr | 0) || applyView.fp !== fp || applyView.fa !== frameW / frameH) {
     applyView.fp = fp; applyView.fa = frameW / frameH;
     renderer.setSize(w, h, false);
-    if (fp) { renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); camera.aspect = w / h; camera.fov = 75; }
+    if (fp) { renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); camera.aspect = w / h; camera.fov = CAM.fov; }
     else {   // mirror: the camera's whole frame, one to one, letterboxed into the pane (black bars when the shapes differ)
       const fa = frameW / frameH, rw = w / h > fa ? h * fa : w, rh = w / h > fa ? h : w / fa, rx = (w - rw) / 2, ry = (h - rh) / 2;
       renderer.setScissorTest(false); renderer.clear();
@@ -443,7 +464,7 @@ function applyView(force) {
   }
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
   if (dbgCam) { camera.position.set(dbgCam[0], dbgCam[1], dbgCam[2]); camera.lookAt(dbgCam[3], dbgCam[4], dbgCam[5]); worldGroup.scale.x = 1; }
-  else if (fp) { camera.position.set(0, 0.35, eyeZ); camera.lookAt(0, -0.1, 0.6); worldGroup.scale.x = 1; }   // eyes 35 cm above the phone axis and behind my hands (see eyeZ), looking down the table at the targets
+  else if (fp) { camera.position.set(0, CAM.height, eyeZ); camera.lookAt(0, CAM.tilt, 0.6); worldGroup.scale.x = 1; }   // eyes 35 cm above the phone axis and behind my hands (see eyeZ), looking down the table at the targets
   else {   // looks where the phone looks, from where navigation has taken the player (the hands move with the player, so the video overlay stays exact)
     camera.position.set(0, 0, 0); camera.lookAt(0, Math.sin(pitch), -Math.cos(pitch)); worldGroup.scale.x = -1;
   }
@@ -467,7 +488,7 @@ for (const z of [-3.2, 3.2]) {   // a wall behind each player
 
 // --- revolver + targets (first person). No mode: a closed hand near the revolver picks it up, the barrel follows the
 // hand (wrist -> middle knuckle), extending and curling the index finger pulls the trigger, an open hand drops it. ------
-const GUN_HOME = new THREE.Vector3(0.3, FLOOR_Y + 0.025, -0.35);   // on the table, to the right and in front, at a depth the phone still tracks
+const GUN_HOME = new THREE.Vector3(-0.22, FLOOR_Y + 0.025, -0.3);   // on the table at your RIGHT (first person looks toward +z, so your right is -x), in front, at a depth the phone still tracks
 const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d45, metalness: 0.8, roughness: 0.35 }), woodMat = new THREE.MeshStandardMaterial({ color: 0x6b3f22, roughness: 0.7 });
 function makeRevolver() {   // barrel along local +z, grip down (-y); the muzzle is at (0, 0.03, 0.15)
   const g = new THREE.Group();
@@ -482,6 +503,8 @@ function makeRevolver() {   // barrel along local +z, grip down (-y); the muzzle
 const gun = { mesh: makeRevolver(), holder: null, lastShot: 0, shots: 0, hits: 0, prevIdx: {}, tracers: [], webs: 0, lastWeb: 0, prevWeb: {}, strands: [] };
 const webMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, emissive: 0x666666, roughness: 0.9 }), webGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1), WEB_UP = new THREE.Vector3(0, 1, 0);
 gun.mesh.position.copy(GUN_HOME); gun.mesh.rotation.set(0, 0, Math.PI / 2); worldGroup.add(gun.mesh);   // lying on its side
+const gunRing = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.12, 40), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));   // marks where the revolver rests
+gunRing.rotation.x = -Math.PI / 2; gunRing.position.set(GUN_HOME.x, FLOOR_Y + 0.003, GUN_HOME.z); worldGroup.add(gunRing);
 const ringTex = (() => {   // bullseye
   const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
   [["#f2f2f2", 128], ["#d92b2b", 100], ["#f2f2f2", 72], ["#d92b2b", 44], ["#f2f2f2", 18]].forEach(([col, r]) => { g.fillStyle = col; g.beginPath(); g.arc(128, 128, r, 0, Math.PI * 2); g.fill(); });
@@ -539,7 +562,7 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
     if (!gun.holder && gripping && palm.distanceTo(gun.mesh.position) < 0.14) { gun.holder = h.key; gun.prevIdx[h.key] = ext[0]; }
     if (gun.holder !== h.key) { gun.prevIdx[h.key] = ext[0]; continue; }
     if (ext.every(Boolean)) {   // open hand: drop it where it is, back onto the table
-      gun.holder = null; gun.mesh.position.set(palm.x, FLOOR_Y + 0.025, palm.z); gun.mesh.rotation.set(0, 0, Math.PI / 2); continue;
+      gun.holder = null; gun.droppedT = now; gun.mesh.position.set(palm.x, FLOOR_Y + 0.025, palm.z); gun.mesh.rotation.set(0, 0, Math.PI / 2); continue;
     }
     _gf.subVectors(pts[9], pts[0]).normalize();                 // barrel: where the hand points
     _gu.subVectors(pts[5], pts[17]).normalize();                // index side up, as in a real grip
@@ -552,7 +575,9 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
     }
     gun.prevIdx[h.key] = ext[0];
   }
-  if (gun.holder && !hands.some(h => h.key === gun.holder)) { gun.holder = null; gun.mesh.position.y = FLOOR_Y + 0.025; gun.mesh.rotation.set(0, 0, Math.PI / 2); }   // the hand vanished: drop
+  if (gun.holder && !hands.some(h => h.key === gun.holder)) { gun.holder = null; gun.droppedT = now; gun.mesh.position.y = FLOOR_Y + 0.025; gun.mesh.rotation.set(0, 0, Math.PI / 2); }   // the hand vanished: drop
+  if (!gun.holder && gun.droppedT && now - gun.droppedT > 3000) { gun.droppedT = 0; gun.mesh.position.copy(GUN_HOME); gun.mesh.rotation.set(0, 0, Math.PI / 2); }   // a dropped revolver goes back to its ring so it is never lost
+  gunRing.visible = !gun.holder; gunRing.material.opacity = 0.45 + 0.25 * Math.sin(now / 250);
   for (const t of targets) {   // knocked-over targets fall back and stand up again after 2 s
     const goal = t.hitT && now - t.hitT < 2000 ? -Math.PI / 2 : 0;
     t.pivot.rotation.x += 0.25 * (goal - t.pivot.rotation.x);
@@ -569,7 +594,7 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
   });
   gun.tracers = gun.tracers.filter(tr => { const a = 1 - (now - tr.t) / 120; if (a <= 0) { worldGroup.remove(tr.line); return false; } tr.line.material.opacity = a; return true; });
   if (flash.visible && now - flash.userData.t > 60) flash.visible = false;
-  $("gun").textContent = (gun.holder ? `REVOLVER in hand - point, extend your index and curl it to fire | SHOTS ${gun.shots}` : `REVOLVER on the table - grab it with a fist`) + ` | WEBS ${gun.webs} (index + pinky out, palm to the phone) | HITS ${gun.hits}`;
+  $("gun").textContent = (gun.holder ? `REVOLVER in hand - point, extend your index and curl it to fire | SHOTS ${gun.shots}` : `REVOLVER on the table at your right (yellow ring) - grab it with a fist`) + ` | WEBS ${gun.webs} (index + pinky out, palm to the phone) | HITS ${gun.hits}`;
 }
 window.gunDbg = { gun, targets, fire: (from, dir) => fireFrom(from, dir, performance.now()), web: (key, from, dir) => shootWeb(key, from, dir, performance.now()), update: (hands) => gunUpdate(performance.now(), hands.map(h => ({ key: h.key, pts: h.pts.map(q => new THREE.Vector3(...q)) }))) };   // test hooks
 
@@ -1122,7 +1147,7 @@ async function main() {
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
-    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-0.7, zMin - 0.55); eyeZ += 0.08 * (target - eyeZ); }
+    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-(CAM.back + 0.15), zMin - CAM.back); eyeZ += 0.08 * (target - eyeZ); }
     drawRemote(now); updateGame(now, move); gunUpdate(now, mine);
     if (now - stat.t > 1000) {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;

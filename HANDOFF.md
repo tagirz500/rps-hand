@@ -979,3 +979,14 @@ toward the phone), not along the palm. Changes: eye at (0, 0.35, min(-0.7, 0.55 
 (0, -0.1, 0.6), FOV 75; `GUN_HOME` (0.3, table, -0.35); web origin = wrist, direction = wrist -> middle knuckle;
 aim assist in `shootRay` (nearest target within 12°, webs 15°) so pointing roughly at a target hits. Verified: gun test
 green; synthetic pose with fingers toward the phone hits a target, fingers up fires but misses.
+
+### 29c. Builds 40-41: revolver at the player's right with a marker ring, CAM sliders (2026-09-11)
+
+Owner: "where is the gun?" - it was at +x, which in first person (looking toward +z) is the player's LEFT, at the
+edge of the view under the HUD. Now `GUN_HOME` = (-0.22, table, -0.3) (the player's right, where the right hand
+tracks), a pulsing yellow ring marks the spot (hidden while held), a dropped revolver returns to the ring after 3 s,
+HUD says "at your right (yellow ring)". Owner: "make a FOV slider because you keep getting it wrong" - CAM button
+(left, under VIEW) opens a panel with FOV / HEIGHT (eye above the phone axis) / BACK (eye behind the nearest hand) /
+TILT (look-at height) sliders; values live in `CAM`, saved in localStorage `rpsh_cam`, applied through `applyView`.
+Gotcha: a button with id `cam` collided with `<video id="cam">`, so the button is `camBtn`. Verified: sliders
+change `camera.fov`/position live and survive a reload.
