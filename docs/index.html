@@ -60,7 +60,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 46)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 47)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -74,7 +74,7 @@
       <label>HEIGHT <input id="cHeight" type="range" min="0" max="0.7" step="0.01"><span id="vHeight"></span></label>
       <label>BACK <input id="cBack" type="range" min="0.1" max="1.5" step="0.01"><span id="vBack"></span></label>
       <label>TILT <input id="cTilt" type="range" min="-0.8" max="0.5" step="0.01"><span id="vTilt"></span></label>
-      <div style="color:#9aa4b8">CAM FOV = the phone camera's real field of view (mirror view + depth). FOV, HEIGHT, BACK, TILT = first person. Saved on this device</div>
+      <div style="color:#9aa4b8">CAM FOV = the phone camera's real field of view (framing + depth). FOV, HEIGHT, BACK, TILT move the view you are in NOW - first person and mirror keep their own. In the mirror, 0/0/0 is exactly where the phone is. Saved on this device</div>
     </div>
     <button id="mode">MODE: predict</button>
     <button id="online">ONLINE</button>
@@ -100,7 +100,7 @@ import { OBJLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/j
 import { HeadView } from "./head/HeadView.js";
 import { rotation as faceRotation } from "./head/spatial.mjs";
 
-const BUILD = 46;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 47;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -488,19 +488,27 @@ let eyeZ = -0.5;   // first-person eye position, follows my hands so they stay i
 function followEye(ptsList) { let zMin = 0; for (const p of ptsList) zMin = Math.min(zMin, palmCentre(p).z); const target = Math.min(-(CAM.back + 0.15), zMin - CAM.back); eyeZ += 0.08 * (target - eyeZ); }   // ptsList: [[21 Vector3]]
 // first-person camera settings, adjustable with the CAM sliders and kept on the device
 const CAM = { fov: 75, height: 0.35, back: 0.55, tilt: -0.15 };
+// The mirror's own offsets from the phone: 0/0/0 = the camera sits exactly where the phone is and the render lies on
+// the video one to one. Raise HEIGHT or pull BACK to look at yourself from further away; TILT aims that view (radians).
+const MCAM = { height: 0, back: 0, tilt: 0 };
 try { Object.assign(CAM, JSON.parse(localStorage.getItem("rpsh_cam") || "{}")); } catch {}
+try { Object.assign(MCAM, JSON.parse(localStorage.getItem("rpsh_mcam") || "{}")); } catch {}
 function camUI() {
+  const mirror = VIEWS[view] === "mirror", C = mirror ? MCAM : CAM, key = mirror ? "rpsh_mcam" : "rpsh_cam";
+  const show = (k, v) => k === "fov" ? v + "°" : k === "tilt" && mirror ? (v * 180 / Math.PI).toFixed(0) + "°" : (+v).toFixed(2) + " m";
+  $("cHfov").value = Math.round(HFOV * 180 / Math.PI); $("vHfov").textContent = Math.round(HFOV * 180 / Math.PI) + "°";
   for (const [k, id] of [["fov", "Fov"], ["height", "Height"], ["back", "Back"], ["tilt", "Tilt"]]) {
-    const inp = $("c" + id); inp.value = CAM[k]; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : (+CAM[k]).toFixed(2) + " m";
-    $("cHfov").value = Math.round(HFOV * 180 / Math.PI); $("vHfov").textContent = Math.round(HFOV * 180 / Math.PI) + "°";
-    inp.oninput = () => { CAM[k] = +inp.value; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : CAM[k].toFixed(2) + " m"; try { localStorage.setItem("rpsh_cam", JSON.stringify(CAM)); } catch {} applyView(true); };
+    const inp = $("c" + id), off = mirror && k === "fov";   // the mirror's field of view IS the camera's, so CAM FOV owns it
+    inp.disabled = off; inp.parentElement.style.opacity = off ? 0.45 : 1;
+    inp.value = off ? CAM[k] : C[k]; $("v" + id).textContent = off ? "camera" : show(k, C[k]);
+    inp.oninput = () => { C[k] = +inp.value; $("v" + id).textContent = show(k, C[k]); try { localStorage.setItem(key, JSON.stringify(C)); } catch {} applyView(true); };
   }
 }
 $("camBtn").onclick = () => { const p = $("camp"); p.hidden = !p.hidden; if (!p.hidden) camUI(); };
 const hf = $("cHfov"); hf.oninput = () => { HFOV = +hf.value * Math.PI / 180; if (head) head.hfov = HFOV; $("vHfov").textContent = hf.value + "°"; try { localStorage.setItem("rpsh_hfov", hf.value); } catch {} applyView(true); };
-window.camDbg = { CAM, get camera() { return camera; } };
+window.camDbg = { CAM, MCAM, get camera() { return camera; } };
 const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("video") ? 1 : 0;   // live camera: first person; test stills/clips: mirror   // mirror = the room seen from the phone, mirrored like the video
-$("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); };
+$("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); if (!$("camp").hidden) camUI(); };   // the panel follows the view it edits
 function applyView(force) {
   const w = canvas.clientWidth, h = canvas.clientHeight, pr = renderer.getPixelRatio(), fp = VIEWS[view] === "first person";
   document.body.classList.toggle("mirror", !fp);
@@ -519,8 +527,10 @@ function applyView(force) {
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
   if (dbgCam) { camera.position.set(dbgCam[0], dbgCam[1], dbgCam[2]); camera.lookAt(dbgCam[3], dbgCam[4], dbgCam[5]); worldGroup.scale.x = 1; }
   else if (fp) { camera.position.set(0, CAM.height, eyeZ); camera.lookAt(0, CAM.tilt, 0.6); worldGroup.scale.x = 1; }   // eyes 35 cm above the phone axis and behind my hands (see eyeZ), looking down the table at the targets
-  else {   // looks where the phone looks, from where navigation has taken the player (the hands move with the player, so the video overlay stays exact)
-    camera.position.set(0, 0, 0); camera.lookAt(0, Math.sin(pitch), -Math.cos(pitch)); worldGroup.scale.x = -1;
+  else {   // looks where the phone looks; at 0/0/0 the camera IS the phone, so the render lies on the video one to one
+    const a = pitch + MCAM.tilt;
+    camera.position.set(0, MCAM.height, MCAM.back);
+    camera.lookAt(0, MCAM.height + Math.sin(a), MCAM.back - Math.cos(a)); worldGroup.scale.x = -1;
   }
 }
 scene.add(new THREE.HemisphereLight(0xfff4e6, 0x2c3448, 0.5));
@@ -1140,8 +1150,19 @@ function renderRooms(list) {
 $("online").onclick = () => { if (net?.opp) return; const l = $("lobby"); l.hidden = !l.hidden; if (!l.hidden) net?.listRooms(); };
 $("closeLobby").onclick = () => $("lobby").hidden = true;
 $("refresh").onclick = () => { $("rooms").textContent = "searching…"; net?.listRooms(); };
-$("quick").onclick = () => { $("rooms").textContent = "searching…"; net?.quickMatch(); };
-$("create").onclick = () => net?.createRoom();
+// Waiting for an opponent has to be escapable: while a search or an open lobby is running, both buttons say STOP.
+let searching = false;
+function setSearching(on) {
+  searching = on;
+  $("quick").textContent = on ? "STOP SEARCHING" : "QUICK MATCH";
+  $("create").textContent = on ? "STOP SEARCHING" : "CREATE LOBBY";
+  $("quick").classList.toggle("go", !on);   // the green highlight belongs to the action, not to the cancel
+}
+function stopSearching(text = "search stopped") {
+  net?.leaveRoom(); setSearching(false); $("rooms").textContent = text; $("net").textContent = "ONLINE";
+}
+$("quick").onclick = () => { if (searching) return stopSearching(); setSearching(true); $("rooms").textContent = "searching…"; net?.quickMatch(); };
+$("create").onclick = () => { if (searching) return stopSearching(); setSearching(true); net?.createRoom(); };
 const MODES = ["predict", "smooth", "raw"];   // predict = filter + velocity lead, smooth = filter only, raw = latest tracker result
 const shape = toVecs;   // the 3D model is the tracked geometry itself, so its lines match the video lines exactly
 let mode = 0;
@@ -1166,7 +1187,7 @@ async function main() {
   if (SCREEN) return screenMain();
   net = createNet({   // register this phone's code at the broker right away, so a PC can link while the tracker is still loading
     status: t => $("net").textContent = t, hands: onHands, game: gameMsg, rooms: renderRooms,
-    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; $("lobby").hidden = true; },
+    matched: () => { setSearching(false); $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; $("lobby").hidden = true; },
     lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
   });
   net.start();

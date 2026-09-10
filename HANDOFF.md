@@ -1171,3 +1171,21 @@ Two other things fixed while testing:
 
 The head's eye-centre reprojection is the new check in `web_face_test.py`: it projects the placed head back into the
 picture with the same pinhole model the hands use and compares it with landmarks 33/263. Under 2 % is on the face.
+
+## 34. Build 47: a way out of a search, and CAM settings that work in the mirror (2026-09-11)
+
+Owner: "make so i can stop quick match" and "the setting in cam like height should also work in mirror".
+
+- **STOP SEARCHING.** QUICK MATCH and CREATE LOBBY both become STOP SEARCHING while this device is waiting for an
+  opponent; pressing either closes the room (`net.leaveRoom`, which already existed for the host-after-match case),
+  puts the status back to ONLINE and makes the lobby vanish from everyone else's list. `matched` clears the state.
+  Checked in `web_lobby_test.py`: E waits, F sees "Lobby 1 - host <code>", E stops, F's refresh shows none, E can
+  start again and F sees it again.
+- **The mirror has its own HEIGHT / BACK / TILT** (`MCAM`, saved as `rpsh_mcam`), starting at 0/0/0, which is exactly
+  where the phone is - so the default mirror still lies on the video one to one. HEIGHT raises the view, BACK pulls it
+  away from yourself, TILT aims it (radians, shown in degrees). The four sliders now edit whichever view is on screen
+  and the panel refreshes when VIEW is pressed; each view keeps its own numbers on the device. The FOV row is greyed
+  out in the mirror and reads "camera", because the mirror's field of view IS the camera's - CAM FOV owns it.
+- Checked with `scratchpad/cam_mirror_test.py`: untouched mirror camera at (0, 0, 0); after HEIGHT 0.3 / BACK 0.8 /
+  TILT -0.2 it is at (0, 0.3, 0.8) and TILT reads -11 deg; switching to first person restores 0.35 m and re-enables
+  FOV; switching back restores the mirror's numbers; a reload keeps them.
