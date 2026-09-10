@@ -29,36 +29,63 @@
   #play { right: 12px; bottom: 12px; background: #78ff78; color: #000; display: none; }
   #net { color: #9fe3ff; font-size: 14px; }
   body.screen #app { grid-template: 1fr / 1fr; } body.screen .pane:first-child { display: none; }
+  [hidden] { display: none !important; }
+  #start { position: fixed; inset: 0; z-index: 10; background: #0f1116; display: grid; place-items: center; text-align: center; padding: 24px; }
+  #start h1 { font-size: 28px; margin: 0 0 8px; } #start p { color: #9aa4b8; margin: 0 0 24px; max-width: 420px; }
+  #start .big { position: static; display: block; width: min(90vw, 380px); margin: 10px auto; padding: 18px 20px; font-size: 20px; background: #78ff78; color: #000; }
+  #start .big.pc { background: #2a3145; color: #fff; } #start .big.both { background: #ffe678; color: #000; }
+  body.track #app { grid-template: 1fr 150px / 1fr !important; }   /* phone-only tracking: camera big, a strip for the buttons */
+  #pair { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; text-align: center; background: rgba(15,17,22,.92); }
+  #pair .code { font-size: 72px; font-weight: 800; letter-spacing: 6px; margin: 8px 0; } #pair p { color: #9aa4b8; max-width: 420px; margin: 6px auto; }
+  #qr { display: inline-block; background: #fff; padding: 12px; border-radius: 12px; margin: 10px 0; }
+  #lobby { position: absolute; right: 12px; top: 112px; width: min(92vw, 300px); background: rgba(20,24,36,.94); border-radius: 14px; padding: 12px; z-index: 5; }
+  #lobby .lb { position: static; display: inline-block; margin: 4px 6px 4px 0; padding: 9px 14px; font-size: 14px; background: #2a3145; color: #fff; }
+  #lobby .lb.go { background: #78ff78; color: #000; } #rooms { margin-top: 8px; font-size: 14px; } #rooms div { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-top: 1px solid #2a3145; }
 </style>
 </head>
 <body>
+<div id="start" hidden>
+  <div>
+    <h1>RPS Hand</h1>
+    <p>What should this device do?</p>
+    <button class="big" id="pickTrack">📱 TRACK MY HAND - camera only, send to a screen</button>
+    <button class="big pc" id="pickScreen">🖥 SCREEN - show the 3D view (gives a code + QR)</button>
+    <button class="big both" id="pickBoth">📱+🖥 BOTH - camera and 3D on this device</button>
+  </div>
+</div>
 <div id="app">
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 30)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 33)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
     <canvas id="gl"></canvas>
+    <div id="pair" hidden><div><p>Scan with the phone, or on the phone tap TRACK MY HAND → PC LINK and enter</p><div class="code" id="pairCode">---</div><div id="qr"></div><p id="pairUrl"></p></div></div>
     <button id="view">VIEW</button>
     <button id="mode">MODE: predict</button>
     <button id="online">ONLINE</button>
     <button id="link">PC LINK</button>
     <button id="play">PLAY</button>
+    <div id="lobby" hidden>
+      <button class="lb go" id="quick">QUICK MATCH</button><button class="lb" id="create">CREATE LOBBY</button><button class="lb" id="refresh">REFRESH</button><button class="lb" id="closeLobby">CLOSE</button>
+      <div id="rooms">open lobbies: (tap REFRESH)</div>
+    </div>
     <div class="hud" id="bottom"><div id="score"></div><div id="game"></div><div id="net">offline</div></div>
   </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }</script>
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
-import { createNet, myCode } from "./net.mjs";
+import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 30;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 33;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -395,6 +422,7 @@ scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnviron
 const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 8);
 const worldGroup = new THREE.Group(); scene.add(worldGroup);   // everything that must mirror in the selfie view
 let frameW = 640, frameH = 480;   // camera frame size, set once the video is known
+let eyeZ = -0.5;   // first-person eye position, follows my hands so they stay in view (updated in the loop)
 const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("video") ? 1 : 0;   // live camera: first person; test stills/clips: mirror   // mirror = the room seen from the phone, mirrored like the video
 $("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); };
 function applyView(force) {
@@ -403,12 +431,12 @@ function applyView(force) {
     renderer.setSize(w, h, false); camera.aspect = w / h;
     // mirror: match the video pane's object-fit:cover crop (a pane taller than the frame shows the full frame height, a wider pane the full width)
     const t = Math.tan(HFOV / 2);
-    camera.fov = fp ? 62 : 2 * Math.atan(w / h < frameW / frameH ? t * frameH / frameW : t / (w / h)) * 180 / Math.PI;
+    camera.fov = fp ? 80 : 2 * Math.atan(w / h < frameW / frameH ? t * frameH / frameW : t / (w / h)) * 180 / Math.PI;
     camera.updateProjectionMatrix();
   }
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
   if (dbgCam) { camera.position.set(dbgCam[0], dbgCam[1], dbgCam[2]); camera.lookAt(dbgCam[3], dbgCam[4], dbgCam[5]); worldGroup.scale.x = 1; }
-  else if (fp) { camera.position.set(0, 0.12, -0.85); camera.lookAt(0, -0.12, 0.5); worldGroup.scale.x = 1; }
+  else if (fp) { camera.position.set(0, 0.12, eyeZ); camera.lookAt(0, -0.2, 0.5); worldGroup.scale.x = 1; }   // eyes behind my hands (see eyeZ); the opponent is mirrored beyond the phone plane, ~1 m away, facing me
   else {   // looks where the phone looks, from where navigation has taken the player (the hands move with the player, so the video overlay stays exact)
     camera.position.set(0, 0, 0); camera.lookAt(0, Math.sin(pitch), -Math.cos(pitch)); worldGroup.scale.x = -1;
   }
@@ -737,8 +765,11 @@ function renderOverlay(displayed) {   // displayed: flat GL arrays of the hands 
 // The opponent's hands arrive as their own gravity-levelled camera-frame points (their phone at the origin). In MY room
 // their phone plane is the far side of the table, so their points are mirrored: x -> -x, z -> -z (chirality flips
 // with the mirror; the skin picks its side from the geometry, so a right hand still reads as a right hand).
-const SCREEN = Q.get("screen");   // ?screen=<code>: this browser is the PC screen of that phone (no camera, renders what the phone sends)
+const SCREEN = Q.get("screen") != null;   // ?screen: this browser is a SCREEN (no camera): it shows its code + QR and renders what the linked phone sends
+const PAIR = Q.get("pair");               // ?pair=<screen code>: a phone opened from the screen's QR: track and link to that screen
+const TRACK = Q.get("role") === "track" || !!PAIR;   // phone-only: camera + tracking, no 3D render here
 const remote = new Map();          // "me:Right" / "opp:Left" -> { hand, a, t }
+window.dbgRemote = remote;         // test hook: what remote hands this page is drawing
 let net = null;
 function remoteHand(key) { if (!remote.has(key)) remote.set(key, { hand: makeHand(), a: null, t: 0 }); return remote.get(key); }
 function onHands(pkt, who) {
@@ -776,31 +807,50 @@ function updateGame(now, move) {
 // PC LINK works before (and without) the camera: shows this device's code and, if another device's code is typed, reloads
 // this page as that device's screen. One prompt on every device: touch detection was unreliable on touchscreen laptops.
 $("link").onclick = () => {
-  const c = prompt(`Your code: ${myCode()}\n\nTo make THIS device the 3D screen of a phone, enter that phone's 3-digit code (its PC LINK shows it). The phone must show "online as <code>" and stay awake. Leave empty to just keep your code.`, "");
-  if (c && /^\d{3,6}$/.test(c.trim())) location.search = "?screen=" + c.trim();
+  let last = ""; try { last = localStorage.getItem("rpsh_last_screen") || ""; } catch {}
+  const c = prompt("Enter the 3-digit code shown on the SCREEN (the PC page that chose SCREEN):", last);
+  if (c && /^\d{3,6}$/.test(c.trim())) { if (net) net.linkScreen(c.trim()); else pendingLink = c.trim(); }
 };
+let pendingLink = PAIR;
+function renderRooms(list) {
+  const box = $("rooms"); box.innerHTML = list.length ? "" : "open lobbies: none (create one or QUICK MATCH)";
+  for (const r of list) { const row = document.createElement("div"); row.innerHTML = `<span>Lobby ${r.k} - host ${r.host}</span>`; const b = document.createElement("button"); b.className = "lb go"; b.textContent = "JOIN"; b.onclick = () => net.joinRoom(r.k); row.appendChild(b); box.appendChild(row); }
+}
+$("online").onclick = () => { if (net?.opp) return; const l = $("lobby"); l.hidden = !l.hidden; if (!l.hidden) net?.listRooms(); };
+$("closeLobby").onclick = () => $("lobby").hidden = true;
+$("refresh").onclick = () => { $("rooms").textContent = "searching…"; net?.listRooms(); };
+$("quick").onclick = () => { $("rooms").textContent = "searching…"; net?.quickMatch(); };
+$("create").onclick = () => net?.createRoom();
 const MODES = ["predict", "smooth", "raw"];   // predict = filter + velocity lead, smooth = filter only, raw = latest tracker result
 const shape = toVecs;   // the 3D model is the tracked geometry itself, so its lines match the video lines exactly
 let mode = 0;
 $("mode").onclick = () => { mode = (mode + 1) % MODES.length; $("mode").textContent = "MODE: " + MODES[mode]; };
 
+function showPair(sc) {
+  $("pair").hidden = false; $("pairCode").textContent = sc;
+  const url = location.origin + location.pathname + "?pair=" + sc; $("pairUrl").textContent = url;
+  $("qr").innerHTML = ""; try { new QRCode($("qr"), { text: url, width: 200, height: 200 }); } catch (e) { console.warn("qr", e); }
+}
 async function screenMain() {   // the PC: no camera, no tracker; render the linked phone's hands (and its opponent's) first person
   document.body.classList.add("screen"); view = 0;
   SKIN = await skinPromise; window.SKIN = SKIN;
   $("status").remove();
-  net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg });
-  net.linkScreen(SCREEN);
+  net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
+    screenReady: showPair, linked: () => { $("pair").hidden = true; }, unlinked: sc => showPair(sc) });
+  net.becomeScreen();
   const loop = () => { drawRemote(performance.now()); $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
 }
 async function main() {
   if (SCREEN) return screenMain();
   net = createNet({   // register this phone's code at the broker right away, so a PC can link while the tracker is still loading
-    status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
-    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; },
+    status: t => $("net").textContent = t, hands: onHands, game: gameMsg, rooms: renderRooms,
+    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; $("lobby").hidden = true; },
     lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
   });
   net.start();
+  if (TRACK) document.body.classList.add("track");
+  if (pendingLink) { net.linkScreen(pendingLink); pendingLink = null; }
   let video = $("cam");
   const imgSrc = Q.get("img");  // ?img=victory.jpg = self-check without a camera
   const vidSrc = Q.get("video");   // ?video=test/handwash.webm = self-check on a looping clip
@@ -828,7 +878,6 @@ async function main() {
     renderer.compile(scene, camera); for (const s of Object.values(slots)) s.hand.hide();
   }
   $("status").remove();
-  $("online").onclick = () => { if (net.opp) return; $("online").textContent = "ONLINE: searching"; net.findMatch(); };
   $("play").onclick = () => { if (net.opp && game.phase === "idle") { net.sendGame({ a: "start" }); gameStart(performance.now()); } };
   if (SKIN) loadSkin(SKIN_URL.replace(/\.glb$/, "_hi.glb")).then(hi => { SKIN_HI = hi; for (const h of hands) h.addHi(hi); }).catch(() => {});   // high-detail mesh, if this export has one
   const imgCentre = lm => PALM.reduce((c, i) => [c[0] + lm[i].x / PALM.length, c[1] + lm[i].y / PALM.length], [0, 0]);
@@ -954,6 +1003,7 @@ async function main() {
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
+    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-0.5, zMin - 0.25); eyeZ += 0.08 * (target - eyeZ); }
     drawRemote(now); updateGame(now, move);
     if (now - stat.t > 1000) {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;
@@ -961,12 +1011,19 @@ async function main() {
     }
     $("hand").textContent = "HANDS: " + (hud.join("  |  ") || "-");
     $("move").textContent = "MOVE: " + (move ?? "?"); $("move").style.color = move ? "#78ff78" : "#ffc850";
-    applyView(false); const tR = performance.now(); renderer.render(scene, camera); const tE = performance.now(); dbg.tm.render += tE - tR; dbg.tm.loop += tE - tLoop0; dbg.tm.loops++;
+    applyView(false); const tR = performance.now(); if (!TRACK) renderer.render(scene, camera); const tE = performance.now();   // track-only phones skip the 3D render dbg.tm.render += tE - tR; dbg.tm.loop += tE - tLoop0; dbg.tm.loops++;
     requestAnimationFrame(loop);
   };
   loop();
 }
-main().catch(e => { console.error(e); const s = $("status"); if (s) s.textContent = "Error: " + e.message; else $("hand").textContent = "Error: " + e.message; });
+const startMain = () => main().catch(e => { console.error(e); const s = $("status"); if (s) s.textContent = "Error: " + e.message; else $("hand").textContent = "Error: " + e.message; });
+if (SCREEN || PAIR || Q.get("img") || Q.get("video") || Q.get("role")) startMain();
+else {   // ask what this device does
+  $("start").hidden = false;
+  $("pickTrack").onclick = () => location.search = "?role=track";
+  $("pickScreen").onclick = () => location.search = "?screen";
+  $("pickBoth").onclick = () => location.search = "?role=both";
+}
 </script>
 </body>
 </html>

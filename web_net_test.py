@@ -5,7 +5,7 @@ import asyncio, os
 from playwright.async_api import async_playwright
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BASE = "http://localhost:8765/"
+import os as _o; BASE = _o.environ.get("RPS_BASE", "http://localhost:8765/")
 ARGS = ["--enable-gpu", "--ignore-gpu-blocklist", "--autoplay-policy=no-user-gesture-required"]
 PROBE = """() => ({ net: document.getElementById('net').textContent, game: document.getElementById('game').textContent,
   score: document.getElementById('score').textContent, move: document.getElementById('move')?.textContent,

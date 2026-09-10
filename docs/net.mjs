@@ -1,34 +1,41 @@
 // Networking for RPS Hand. No server of ours: PeerJS's free public broker only introduces two browsers to each
 // other (signalling); the hand streams and game messages then go browser-to-browser over WebRTC data channels.
-// Roles:  player  = a phone with the camera (tracks, streams its hands)
-//         screen  = a PC browser linked to a player by the player's 6-digit code (renders, no camera)
-// Matchmaking with no backend: lobby slots are PeerJS ids "rpsh-lobby-<k>". The first player to claim a slot waits
-// there; the next player finds the id taken, dials it, and both then talk over their own player ids.
+// Roles:  player  = a phone with the camera (tracks, streams its hands); PeerJS id rpsh-<code>
+//         screen  = a PC browser that shows the 3D view; PeerJS id rpsh-s-<screen code>. The SCREEN shows its code
+//                   (and a QR of ?pair=<code>) and waits; the PHONE dials it (PC LINK, or the QR opens ?pair=).
+// Lobbies with no backend: a host claims the PeerJS id "rpsh-room-<k>" (first free k). Anyone can discover open
+// rooms by probing those ids (a connect + {t:"probe"} answered with the room's info), and join by sending
+// {t:"join", code}; the host then dials the joiner's own player id and both continue over player ids.
+// Quick match = join the first open room, else open one and wait. Limit: ROOMS probes per listing.
 // Requires window.Peer (peerjs.min.js loaded by a classic <script> before this module).
 
 const ICE = { iceServers: [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },   // free public TURN relay for strict mobile NATs
 ] };
-const LOBBIES = 6;
+const ROOMS = 8;                 // ids rpsh-room-1..8 are probed for the lobby list
+const PROBE_MS = 2500;
+const CODE_LEN = 3;              // owner: 3 digits are enough to type across the room
+const rnd = () => String(Math.floor(10 ** (CODE_LEN - 1) + Math.random() * 9 * 10 ** (CODE_LEN - 1)));
 let wake = null;
-async function keepAwake() {   // a sleeping phone drops the broker socket and its code; ask the screen to stay on while online
+async function keepAwake() {     // a sleeping phone drops the broker socket and its code; ask the screen to stay on while online
   try { if (!wake && navigator.wakeLock) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); } } catch {}
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
-const CODE_LEN = 3;   // owner: 3 digits are enough to type across the room
-const rnd = () => String(Math.floor(10 ** (CODE_LEN - 1) + Math.random() * 9 * 10 ** (CODE_LEN - 1)));
 
-export function myCode() {   // the player's "account": a short numeric code kept in this browser
+function stored(key) {           // a short numeric code kept in this browser
   let c = null;
-  try { c = localStorage.getItem("rpsh_code" + CODE_LEN); if (!c) { c = rnd(); localStorage.setItem("rpsh_code" + CODE_LEN, c); } } catch { c = rnd(); }
+  try { c = localStorage.getItem(key); if (!c) { c = rnd(); localStorage.setItem(key, c); } } catch { c = rnd(); }
   return c;
 }
+export const myCode = () => stored("rpsh_code" + CODE_LEN);        // the player's "account"
+export const screenCode = () => stored("rpsh_screen" + CODE_LEN); // the screen's code
 
-// cb: { status(text), hands(pkt, from), game(msg, from), matched(role), lost(who) }
+// cb: { status(text), hands(pkt, from), game(msg, from), matched(role), lost(who), rooms(list), roomOpen(k),
+//       screenReady(code), linked(phoneCode), unlinked() }
 export function createNet(cb) {
   const code = myCode();
-  const net = { code, peer: null, opp: null, screen: null, host: false, waiting: null, stats: { sent: 0, recv: 0, bytes: 0 } };
+  const net = { code, peer: null, opp: null, screen: null, phone: null, host: false, room: null, stats: { sent: 0, recv: 0 } };
   const say = t => cb.status?.(t);
 
   function wire(conn, who) {                                  // attach a data connection as the opponent or the screen
@@ -40,6 +47,7 @@ export function createNet(cb) {
     conn.on("close", () => { if (net[who] === conn) { net[who] = null; cb.lost?.(who); say(who === "opp" ? "opponent left" : "screen disconnected"); } });
     conn.on("error", e => console.warn("conn error", who, e));
   }
+  function becomeOpp(conn, role) { net.opp = conn; wire(conn, "opp"); net.host = role === "host"; say("matched (" + role + ")"); cb.matched?.(role); }
 
   let retries = 0;
   function ensurePeer() {                                     // the player's own peer, id rpsh-<code>
@@ -48,8 +56,9 @@ export function createNet(cb) {
     p.on("open", () => { retries = 0; say("online as " + code); keepAwake(); });
     p.on("disconnected", () => { say("reconnecting…"); setTimeout(() => { if (!p.destroyed) p.reconnect(); }, 1000); });   // broker socket dropped (phone slept): come back
     p.on("error", e => {
+      if (e.type === "peer-unavailable") return;              // a probe or a dial to an absent id; handled by timeouts
       console.warn("peer error", e);
-      if (e.type === "unavailable-id") {   // a stale registration from an earlier load of this page holds the code for up to a minute: retry
+      if (e.type === "unavailable-id") {                        // a stale registration from an earlier load holds the code for up to a minute: retry
         if (retries++ < 20) { say("code " + code + " still registered, retrying… (" + retries + ")"); p.destroy(); setTimeout(ensurePeer, 3000); }
         else say("code " + code + " is in use elsewhere: close other tabs of this page");
       } else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(ensurePeer, 3000); }
@@ -57,60 +66,97 @@ export function createNet(cb) {
     p.on("connection", conn => {
       conn.on("open", () => {
         conn.once("data", m => {
-          if (m?.t === "hello" && m.role === "screen") { net.screen = conn; wire(conn, "screen"); say("PC linked"); conn.send({ t: "hello", role: "player", code }); }
-          else if (m?.t === "hello" && m.role === "player") { net.opp = conn; wire(conn, "opp"); net.host = false; say("matched (guest)"); conn.send({ t: "hello", role: "player", code }); cb.matched?.("guest"); }
+          if (m?.t === "hello" && m.role === "player") { conn.send({ t: "hello", role: "player", code }); becomeOpp(conn, "guest"); }
         });
       });
     });
     return p;
   }
+  const whenOpen = f => (net.peer?.open ? f() : ensurePeer().once("open", f));
 
-  net.findMatch = () => {                                     // random opponent: claim a lobby slot or join whoever holds one
-    ensurePeer(); say("looking for a player…");
-    const tryLobby = k => {
-      if (k > LOBBIES) { say("no free lobby, tap ONLINE again"); return; }
-      const id = "rpsh-lobby-" + k;
-      const lobby = new Peer(id, { config: ICE });
-      lobby.on("open", () => {                                // slot is free: wait here
-        net.waiting = lobby; say("waiting for a player… (code " + code + ")");
-        lobby.on("connection", c => c.on("open", () => c.once("data", m => {
-          if (m?.t !== "hello" || !m.code) return;
-          const conn = net.peer.connect("rpsh-" + m.code, { reliable: true });   // talk over player ids from now on
-          conn.on("open", () => { conn.send({ t: "hello", role: "player", code }); net.opp = conn; wire(conn, "opp"); net.host = true; say("matched (host)"); cb.matched?.("host"); });
-          setTimeout(() => { c.close(); lobby.destroy(); net.waiting = null; }, 1500);   // free the slot for the next pair
-        })));
+  // --- PC screen: register its own id, show its code, wait for a phone -----------------------------------------
+  net.becomeScreen = () => {
+    let sc = screenCode(), tries = 0;
+    const register = () => {
+      const p = net.peer = new Peer("rpsh-s-" + sc, { config: ICE });
+      p.on("open", () => { say("screen " + sc + ": waiting for a phone…"); cb.screenReady?.(sc); keepAwake(); });
+      p.on("disconnected", () => setTimeout(() => { if (!p.destroyed) p.reconnect(); }, 1000));
+      p.on("error", e => {
+        if (e.type === "unavailable-id") { p.destroy(); if (tries++ < 3) setTimeout(register, 3000); else { sc = rnd(); try { localStorage.setItem("rpsh_screen" + CODE_LEN, sc); } catch {} tries = 0; register(); } }
+        else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(register, 3000); }
+        else if (e.type !== "peer-unavailable") console.warn("screen peer error", e);
       });
-      lobby.on("error", e => {
-        if (e.type !== "unavailable-id") { console.warn("lobby error", e); return; }
-        lobby.destroy();
-        const c = net.peer.connect(id, { reliable: true });   // someone is waiting there: knock
-        let answered = false;
-        c.on("open", () => { c.send({ t: "hello", role: "player", code }); say("joining…"); });
-        c.on("close", () => { if (!net.opp && !answered) setTimeout(() => tryLobby(k + 1), 300); });
-        setTimeout(() => { if (!net.opp) { answered = true; c.close(); tryLobby(k + 1); } }, 6000);
-      });
+      p.on("connection", conn => conn.on("open", () => conn.once("data", m => {
+        if (m?.t !== "hello" || m.role !== "player") return;
+        if (net.phone?.open) { conn.close(); return; }          // one phone per screen
+        net.phone = conn; conn.send({ t: "hello", role: "screen", code: sc }); say("linked to phone " + m.code); cb.linked?.(m.code);
+        conn.on("data", d => { net.stats.recv++; if (d?.t === "h") cb.hands?.(d, d.who || "me"); else if (d?.t === "g") cb.game?.(d, "player"); });
+        conn.on("close", () => { if (net.phone === conn) { net.phone = null; say("screen " + sc + ": phone disconnected, waiting…"); cb.unlinked?.(sc); } });
+      })));
     };
-    if (net.peer.open) tryLobby(1); else net.peer.once("open", () => tryLobby(1));
+    register();
+    return sc;
   };
 
-  net.cancel = () => { net.waiting?.destroy(); net.waiting = null; say("online as " + code); };
-
-  net.linkScreen = targetCode => {                            // PC side: become the screen of the player with this code
-    const p = net.peer = new Peer(undefined, { config: ICE });
-    let attempt = 0, conn = null;
-    const dial = () => {
-      attempt++; say(attempt === 1 ? "connecting to " + targetCode + "…" : `waiting for phone ${targetCode}… (${attempt}) open the page on the phone and keep it awake`);
-      conn = p.connect("rpsh-" + targetCode, { reliable: true });
-      conn.on("open", () => { conn.send({ t: "hello", role: "screen" }); say("linked to " + targetCode); keepAwake(); });
-      conn.on("data", m => { net.stats.recv++; if (m?.t === "h") cb.hands?.(m, m.who || "me"); else if (m?.t === "g") cb.game?.(m, "player"); });
-      conn.on("close", () => { say("phone disconnected, waiting…"); setTimeout(dial, 3000); });
-      conn.on("error", e => say("link error: " + (e.type || e)));
-    };
-    p.on("open", dial);
-    p.on("error", e => {   // peer-unavailable = no phone registered under that code right now: keep trying, the phone may still be loading or asleep
-      if (e.type === "peer-unavailable") setTimeout(dial, 3000);
-      else say("link failed: " + (e.type || e));
+  // --- phone: dial a screen by its code, keep trying until it answers, re-dial if it drops -------------------------
+  net.linkScreen = sc => {
+    let tries = 0, stop = false;
+    net.unlinkScreen = () => { stop = true; try { net.screen?.close(); } catch {} net.screen = null; };
+    const dial = () => whenOpen(() => {
+      if (stop || net.screen?.open) return;
+      tries++; say(tries === 1 ? "linking to screen " + sc + "…" : `waiting for screen ${sc}… (${tries}) is the SCREEN page open on the PC?`);
+      const conn = net.peer.connect("rpsh-s-" + sc, { reliable: true });
+      let opened = false;
+      conn.on("open", () => { opened = true; conn.send({ t: "hello", role: "player", code }); net.screen = conn; wire(conn, "screen"); say("PC linked (screen " + sc + ")"); try { localStorage.setItem("rpsh_last_screen", sc); } catch {} });
+      conn.on("close", () => { if (!stop) setTimeout(dial, 3000); });
+      setTimeout(() => { if (!opened && !stop) { try { conn.close(); } catch {} dial(); } }, 4000);
     });
+    dial();
+  };
+
+  // --- rooms --------------------------------------------------------------------------------------------------
+  net.createRoom = (k = 1) => {                               // claim the first free room id and wait there
+    if (net.room) return;
+    if (k > ROOMS) { say("all " + ROOMS + " lobbies are taken, try again later"); return; }
+    const id = "rpsh-room-" + k, room = new Peer(id, { config: ICE });
+    room.on("open", () => {
+      net.room = { peer: room, k, open: true }; say("lobby " + k + " open, waiting for a player… (your code " + code + ")"); cb.roomOpen?.(k);
+      room.on("connection", c => c.on("open", () => c.once("data", m => {
+        if (m?.t === "probe") { c.send({ t: "room", k, host: code, open: !!net.room?.open && !net.opp }); setTimeout(() => c.close(), 300); return; }
+        if (m?.t === "join" && m.code && net.room?.open && !net.opp) {
+          net.room.open = false;
+          const conn = net.peer.connect("rpsh-" + m.code, { reliable: true });   // talk over player ids from now on
+          conn.on("open", () => { conn.send({ t: "hello", role: "player", code }); becomeOpp(conn, "host"); net.leaveRoom(); });
+          setTimeout(() => c.close(), 1500);
+        }
+      })));
+    });
+    room.on("error", e => { if (e.type === "unavailable-id") { room.destroy(); net.createRoom(k + 1); } else if (e.type !== "peer-unavailable") console.warn("room error", e); });
+  };
+  net.leaveRoom = () => { if (net.room) { net.room.peer.destroy(); net.room = null; } };
+
+  net.listRooms = () => new Promise(res => whenOpen(() => {   // probe every room id; open rooms answer within PROBE_MS
+    const found = [], conns = [];
+    for (let k = 1; k <= ROOMS; k++) {
+      const c = net.peer.connect("rpsh-room-" + k, { reliable: true }); conns.push(c);
+      c.on("open", () => c.send({ t: "probe" }));
+      c.on("data", m => { if (m?.t === "room") found.push(m); });
+    }
+    setTimeout(() => { for (const c of conns) try { c.close(); } catch {} const list = found.filter(r => r.open && r.host !== code).sort((a, b) => a.k - b.k); cb.rooms?.(list); res(list); }, PROBE_MS);
+  }));
+
+  net.joinRoom = k => whenOpen(() => {                        // knock on a room; its host dials our player id back
+    say("joining lobby " + k + "…");
+    const c = net.peer.connect("rpsh-room-" + k, { reliable: true });
+    c.on("open", () => c.send({ t: "join", code }));
+    setTimeout(() => { if (!net.opp) { say("lobby " + k + " did not answer"); try { c.close(); } catch {} } }, 8000);
+  });
+
+  net.quickMatch = async () => {                              // first open room, else open one and wait
+    if (net.opp) return;
+    say("looking for a player…");
+    const list = await net.listRooms();
+    if (list.length) net.joinRoom(list[0].k); else net.createRoom();
   };
 
   net.sendHands = pkt => {                                    // pkt: { t:"h", who:"me", hands:[{n, a:[63], m}], ts }

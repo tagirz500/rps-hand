@@ -883,3 +883,40 @@ Wake Lock is requested once online and on return to the foreground; the PC side 
 when the connection closes. Build 30: codes are 3 digits (`CODE_LEN` in net.mjs, localStorage `rpsh_code3`);
 the PC prompt accepts 3-6 digits. `web_link_order_test.py`: PC enters the code before the phone page exists,
 links 2.8 s after the phone opens, survives a phone reload.
+
+## 28. Builds 31-33: start screen, lobbies, screen pairing by QR, face to face (2026-09-10, late night)
+
+Owner: "test the PC link; then matchmaking with lobbies (open lobby list anyone can join) and normal quick
+match; for the test put one person in front of the other, 1 m apart, facing each other, I see my hands and
+theirs"; then "three buttons: track my hand / screen (3D view) / both"; then "the PC screen should give a QR
+code and a 3-digit number".
+
+- **Start screen** (`#start`, shown when the URL has no role): TRACK MY HAND (`?role=track`: camera + tracking,
+  no 3D render, the 3D pane shrinks to a 150 px strip for the buttons), SCREEN (`?screen`: no camera, shows
+  its code + QR, renders what the linked phone sends), BOTH (`?role=both`: the classic split page). Test URLs
+  (`?img`, `?video`, `?pair`) skip the start screen. CSS `[hidden] { display:none !important }` was needed:
+  `#start { display:grid }` had overridden the hidden attribute and the invisible overlay ate every tap.
+- **Pairing, reversed.** The SCREEN registers `rpsh-s-<screen code>` (`screenCode()`, localStorage
+  `rpsh_screen3`, regenerated if taken) and shows the code + a QR of `?pair=<code>` (qrcodejs from cdnjs) in
+  the `#pair` overlay until a phone links. The PHONE dials it: from the QR (`?pair=`), or PC LINK -> prompt
+  for the screen's code; `net.linkScreen(sc)` re-dials every 4 s until the screen answers and re-dials if it
+  drops; `rpsh_last_screen` pre-fills the prompt. One phone per screen. The old direction (PC types the
+  phone's code) is gone.
+- **Lobbies without a backend** (`net.mjs`): a host claims `rpsh-room-<k>` (first free of 8); anyone lists
+  open rooms by probing all 8 ids (connect + `{t:"probe"}`, answered with `{t:"room", k, host, open}` within
+  2.5 s) and joins with `{t:"join", code}`; the host dials the joiner's player id, both continue over player
+  ids, the room id is freed. QUICK MATCH = join the first open room, else create one and wait. The ONLINE
+  button opens the `#lobby` panel (QUICK MATCH / CREATE LOBBY / REFRESH / CLOSE + the list with JOIN buttons).
+- **Face to face**: first-person eye at `eyeZ` = min(-0.5, 0.25 m behind my nearest hand) (smoothed), looking
+  at (0, -0.2, 0.5), FOV 80; the opponent's hands are mirrored beyond the phone plane, so with hands ~0.3 m
+  from each phone the players' eyes are ~1 m apart and both pairs of hands are in view (my near hands are
+  large; hands held at face height can occlude the far hand).
+- **Verified** (`web_lobby_test.py`, `web_link_test.py`, headless Edge, real broker): the start screen and its
+  three buttons; A creates lobby 1, B sees "Lobby 1 - host <code>" and JOINs -> host/guest; C quick-matches
+  into a fresh lobby 1, D quick-matches and joins C; in first person A draws B's hand and B draws both of A's
+  (`window.dbgRemote` hook). Screen shows code + QR + URL; a phone opened from the QR link goes track-only and
+  links; the screen draws `me:Right`; phone reload -> screen re-links; phone dialling a closed screen waits and
+  links when the screen returns. Live-site runs of the earlier PC-link flow also passed before the reversal.
+- Known: a second tab of the same phone waits on "code still registered" (one phone tab at a time); the lobby
+  list costs 8 probes per refresh; rooms are global across everyone using the public broker with this id
+  scheme (fine for now, prefix the ids if that ever matters).
