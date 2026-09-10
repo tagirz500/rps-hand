@@ -863,3 +863,11 @@ A's line) and matching scores; a second round with no hand in view resolves as N
 
 Not done: physics props are not synchronised (the fork removed them anyway); no reconnection after a dropped
 peer (tap ONLINE again); the screen only shows hands while the phone page is open.
+
+### 27b. Build 28: PC LINK works without a camera (2026-09-10, night)
+
+Owner on a PC with no camera: "pressing PC LINK does nothing". Cause: `main()` returned at the camera failure
+before the buttons were wired. Now `#link` is wired at module level (one prompt on every device: shows this
+device's code, and a typed 6-digit code reloads the page as `?screen=<code>`), and the no-camera status text
+explains exactly that. `web_link_test.py` proves it: a camera-less page links to a phone page by code and the
+phone reports "PC linked".
