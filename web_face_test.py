@@ -32,6 +32,14 @@ async def run():
             st = await A.evaluate(STATE)
             print(img, "| head at", st["pos"], "m | euler", st["euler"], "| landmarks", st["lm"], "| mask", st["mask"], "|", st["hud"][:40])
             print("   stats:", st["stats"].replace("\n", " ")[:160])
+            # does the placed head land where the video shows the face? project its eye centre (= the group's origin)
+            # back into the picture with the same pinhole model the hands use, and compare with landmarks 33/263.
+            if st["lm"]:
+                err = await A.evaluate("""() => { const p = faceDbg.group.position, k = 2 * Math.tan((+new URLSearchParams(location.search).get('fov') || 60) * Math.PI / 360);
+                  const zc = -p.z, W = dbg.frameW, H = dbg.frameH, u = 0.5 + p.x / (zc * k), v = 0.5 + (-p.y) / (zc * k * H / W);
+                  const eu = (faceDbg.lm[33][0] + faceDbg.lm[263][0]) / 2, ev = (faceDbg.lm[33][1] + faceDbg.lm[263][1]) / 2;
+                  return [+(u - eu).toFixed(4), +(v - ev).toFixed(4)]; }""")
+                print("   eye centre reprojects", err, "off the tracked eyes (fraction of the frame; under 0.02 is on the face)")
             if st["lm"]:   # yaw sign: nose right of the cheek midpoint (image x) <=> head turned toward image +x <=> positive yaw
                 nose = await A.evaluate("faceDbg.lm[1][0] - (faceDbg.lm[234][0] + faceDbg.lm[454][0]) / 2")
                 print("   yaw", st["euler"][1], "deg | nose offset", round(nose, 3), "| signs agree:", (nose > 0) == (st["euler"][1] > 0) or abs(nose) < 0.01)

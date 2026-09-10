@@ -1,12 +1,14 @@
 # Paste this into a new Claude Code session to continue
 
 ```
-Continue the RPS Hand project. Repo: https://github.com/tagirz500/rps-hand (on Tagir's PC it is
-C:\Users\tagir\Downloads\rps_hand, already a git checkout of that repo).
+Continue the Hands Lapse project. Repo: https://github.com/tagirz500/hands-lapse (on Tagir's PC it is
+C:\Users\tagir\Downloads\rps_hand on branch hands-lapse; `origin` there is still tagirz500/rps-hand and `fork` is
+d14life/rps-hand, whose main is merged into this branch).
 
 Read HANDOFF.md completely before doing anything - it is the full history, design, gotchas, test harness,
-metrics and the contract for the hand mesh. Sections 19-28 describe the current state (build 33: mesh hands from the d14life fork + multiplayer, lobbies, screen
-pairing by QR, three-way start screen) and the open problems; §27-28 are the networking design. Then:
+metrics and the contract for the hand mesh. Sections 27-33 describe the current state (build 46 "Hands Lapse": the fork's hand model and head module inside our
+app, plus multiplayer, lobbies, screen pairing by QR, the revolver, targets, webs and the mask) and the open problems;
+§28-29 are the networking design, §33 is the merge with the fork. Then:
 
 1. Run the test harness to get a baseline before changing anything:
      python -m http.server 8765 --directory docs      (in one terminal)
@@ -16,13 +18,15 @@ pairing by QR, three-way start screen) and the open problems; §27-28 are the ne
      python web_link_test.py                           (screen pairing by code/QR, reloads, order independence)
      python web_gun_test.py                            (revolver on its stand, targets, webs, screen role)
      python web_face_test.py                           (head tracking + mask on photos, first person hides it, screen relay; face_*.png renders)
+     python web_net_test.py                            (two players match, a PC screen links, one round over the wire)
+     node --test docs/movement/*.test.mjs docs/test/*.test.mjs   (the fork's movement + the head/body unit tests)
    Numbers only compare between runs on the SAME PC (tracker fps differs per GPU), and the rps clip starts
    at a random point per run.
 2. Work on mechanics (tracking precision, stability with two hands, height/depth, latency) and on the
    hand-scan mesh (HANDOFF §22: phone frame rate, skinning quality at bent joints, pointing-navigation gains).
-3. Every change: rerun the harness, compare the numbers to the table in HANDOFF §20, look at the
-   hard_*.png frames, then push docs/ to main (GitHub Pages redeploys https://tagirz500.github.io/rps-hand/
-   in ~30 s; bump BUILD in docs/index.html so the phone readout shows the new build).
+3. Every change: rerun the harness, compare the numbers to the tables in HANDOFF §20 and §33, look at the
+   hard_*.png frames, then push docs/ to main (GitHub Pages redeploys https://tagirz500.github.io/hands-lapse/
+   in ~2 min; bump BUILD in docs/index.html so the phone readout shows the new build).
 4. Report what changed in the numbers, not just what you edited.
 
 Rules the owner has set: predict/smooth must not drift from the hand on fast moves; two hands must

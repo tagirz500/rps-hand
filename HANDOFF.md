@@ -1081,3 +1081,65 @@ way too far away", and "pull the latest Dust II with the newer tracking".
   1.23 vs 1.37 %, handclap 1.16 vs 1.88 %). The head worker costs ~5 ms of tracker time and no hand quality here.
 - Live: https://tagirz500.github.io/rps-hand/ served build 45 ~2 min after the push; `web_face_test.py` against the
   live site: same numbers, screen relay OK, no errors.
+
+## 33. Build 46 "Hands Lapse": the fork's hand model and head module inside our app (2026-09-11)
+
+Owner: "just copy his ones and moving head tracking, the hand model, and then make a fork to his one calling it hands
+lapse and keep everything with the spider web, with targets, with the face mask".
+
+**The repo.** This branch is a git MERGE of `d14life/rps-hand` main (his builds 27-33, movement v60, and our
+`camlink` PR which he merged) into our main (build 45), published as https://github.com/tagirz500/hands-lapse
+(Pages: https://tagirz500.github.io/hands-lapse/). GitHub refuses a real fork button here - the account already owns
+the network root `tagirz500/rps-hand` - so the fork is by history: his commits are in this branch's ancestry and
+`docs/movement/`, `docs/gun.mjs`, `docs/armscan_*.glb` come across untouched.
+
+**His hand model, ported into our `docs/index.html`** (his delta from the common base was 285 lines; ours was 2146,
+so his went into ours, not the other way round):
+- `solidHand` (`?col=0` off): after the FK the finger chains are relaxed as a physical object - capsule fingers
+  (`FINGER_RAD` 7.5 mm) that may not overlap, a palm slab (`PALM_HALF` 11 mm) they cannot enter, bone lengths kept,
+  4 passes. A pair whose across-palm order at the contact is swapped is a real crossing and separates along the ray
+  from the phone (the picture fixes where a finger is; the tracker's depth is the uncertain part).
+- Fist prior `FIST {mcp 85, pip 100, dip 60}` (`?fist=a,b,c`) blended in by tip-to-knuckle closeness, plus the fold
+  prior (a fingertip over the palm is a folded finger): the tracker reads a closed fist as a loose hook 4-5 cm off
+  the palm, and this is what makes ROCK look like a fist.
+- Two-axis knuckle: the MCP keeps its sideways spread (+-40 deg) so fingers can cross; PIP/DIP stay hinges.
+- Per-joint angle smoothing carried in the hand's own `ratio` state, so a held pose stops shimmering.
+- `cutArm`: with hands-only (default) the forearm skin is CUT 8 cm past the wrist (`?stub=`) and the hole capped, and
+  the forearm bones are driven straight instead of collapsed into the wrist (the old collapse left a blob and a spike
+  behind the wrist, obvious in first person).
+- `FINGER_FAT` 1.15 -> 1.3, tracker input `DS` 384 -> 480 px (he measured 480 as the better input), `?skin=armscan`
+  (his scanned skin baked onto the arms model, `armscan_L/R.glb`).
+
+**His head module replaces our inline face worker.** `docs/head/` (`HeadView` + `worker.mjs` + `pose.mjs` +
+`spatial.mjs`) was already in the repo and is what his movement build uses; build 45 had rolled its own Face Landmarker
+worker instead. Now `index.html` creates one `HeadView`, and `fitHead` does a six-parameter perspective fit of Google's
+canonical face **using our HFOV** (the CAM FOV slider drives it), so the head arrives as a metric pose in the camera
+frame rather than MediaPipe's own matrix. Why it matters on a phone: frames go to the face at 288-512 px (not full
+resolution), the width cycles while no face is found (`seated_desk` is only found at some widths), and the face is only
+given a frame while the hand tracker is idle - a starvation guard lets one through every 200 ms if it never idles.
+- Frames: `fitHead` poses the canonical face about its EYE CENTRE, scaled to a 90 mm outer-eye span, in the camera
+  frame (x right, y down, z away). Our `.obj` assets are that same model in its own axes, so `faceParts` only carries
+  the eye offset and `faceModel` the 1.0121 scale; `placeFace` conjugates the fit's rotation with a 180 deg x-rotation
+  (`Rx R Rx`) to reach our GL frame and levels it with the phone tilt like the hands. Getting the flip on only ONE side
+  renders the back of the head - the first render showed a green bowl.
+- Over the wire the phone now sends the 6 fit parameters (`{a:"face", p:[...]}`), not a 16-number matrix.
+- `head/worker.mjs` also returns the landmarks and the contour index pairs now, which is what draws the orange face on
+  the video; `full.html` ignores the extra fields.
+
+**Not taken from his build**: `render3D`/`handCam` (his first-person hand footprint - our first person is the
+slider-driven eye camera with the revolver, targets and webs placed for it), his `gun.mjs` pistol (we have the
+revolver), and `NHANDS` default 1 (this app needs both hands; `?hands=1` is there for a slow phone).
+
+**Numbers** (headless Edge on Tagir's PC, same machine as build 45's table in section 32):
+
+| check | build 45 | build 46 |
+|---|---|---|
+| stills, labelled moves | 5/9 | 5/9 |
+| wave / counting / cleanhands / handwash fps | 30 / 30 / 30 / 30 | 28 / 30 / 29 / 31 |
+| gesture67 / handclap / rps fps | 27 / 15 / 12 | 26 / 14 / 12 |
+| head found on robbie_v | 0.547 m | 0.413 m, eye centre reprojects 0.04 % of the frame off the tracked eyes |
+| head found on seated_desk (2 hands) | 1.268 m | 0.974 m, 0.21 % off |
+| movement unit tests | 67 pass | 73 pass |
+
+The head's eye-centre reprojection is the new check in `web_face_test.py`: it projects the placed head back into the
+picture with the same pinhole model the hands use and compares it with landmarks 33/263. Under 2 % is on the face.

@@ -13,7 +13,7 @@ try {
     try {opts.baseOptions.delegate=delegate;tracker=await FaceLandmarker.createFromOptions(files,opts);break;}
     catch(e){if(delegate===DELEGATES[DELEGATES.length-1])throw e;}
   }
-  postMessage({ type: 'ready', delegate });
+  postMessage({ type: 'ready', delegate, contours: FaceLandmarker.FACE_LANDMARKS_CONTOURS.map(c => [c.start, c.end]) });
 } catch (e) { postMessage({ type: 'error', message: e.message }); }
 
 onmessage = ({ data }) => {
@@ -25,7 +25,8 @@ onmessage = ({ data }) => {
     if(ts-lastSeen>650||hfov!==lastFov)previous=null;
     const fit=base?fitHead(points,aspect,base,hfov,previous):null;
     if(fit){previous=fit.parameters;lastSeen=ts;lastFov=hfov;}
-    postMessage({ type:'pose',ts,pose:fit?{...base,yaw:fit.yaw,pitch:fit.pitch,fit}:null,found:!!points,span:base?.span,width:frame.width });   // found/span: diagnostics (a face seen but rejected by the fit)
+    postMessage({ type:'pose',ts,pose:fit?{...base,yaw:fit.yaw,pitch:fit.pitch,fit}:null,found:!!points,span:base?.span,width:frame.width,
+      lm:points?points.map(p=>[Math.round(p.x*1e4)/1e4,Math.round(p.y*1e4)/1e4]):null });   // lm: for drawing the tracked face on the video   // found/span: diagnostics (a face seen but rejected by the fit)
   } catch (e) { postMessage({ type: 'error', message: e.message }); }
   finally { frame.close(); }
 };

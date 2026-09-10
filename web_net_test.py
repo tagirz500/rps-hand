@@ -31,15 +31,23 @@ async def run():
         codeA = (await A.inner_text("#net")).split("online as ")[1].strip()
         # expose remote map size for the probe
         for pg in (A, B): await pg.evaluate("window.__remote = []")
-        await A.click("#online"); await asyncio.sleep(2.5); await B.click("#online")
+        # ONLINE opens the lobby; QUICK MATCH inside it opens a room and joins one
+        await A.click("#online"); await A.click("#quick"); await asyncio.sleep(3); await B.click("#online"); await B.click("#quick")
         for i in range(30):
             await asyncio.sleep(1)
             na, nb = await A.inner_text("#net"), await B.inner_text("#net")
             if na.startswith("matched") and nb.startswith("matched"): break
         print("A:", na, "| B:", nb)
-        C = await page("C", f"?screen={codeA}")
-        await asyncio.sleep(6)
-        print("C:", await C.inner_text("#net"))
+        # the SCREEN shows a 3-digit code; the phone types it into PC LINK (a prompt)
+        C = await page("C", "?screen")
+        await C.wait_for_function("/^\\d{3}$/.test(document.getElementById('pairCode').textContent.trim())", timeout=60000)
+        codeC = (await C.inner_text("#pairCode")).strip()
+        A.on("dialog", lambda d: asyncio.ensure_future(d.accept(codeC)))
+        await A.click("#link")
+        for i in range(20):
+            await asyncio.sleep(1)
+            if (await C.inner_text("#net")).startswith("linked to phone"): break
+        print("C:", await C.inner_text("#net"), "| phone", codeA, "-> screen", codeC)
         # hands flowing? count remote entries with fresh data on each page
         count = "() => { let n = 0; for (const [k, r] of (window.__rm || new Map())) if (r.a && performance.now() - r.t < 1000) n++; return n; }"
         # the module keeps `remote` private; read it through the scene instead: visible remote hand groups

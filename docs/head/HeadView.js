@@ -21,7 +21,7 @@ export class HeadView {
     this.worker.onerror = e => fail(e.message || 'worker error');
     this.worker.onmessage = ({ data }) => {
       if (data.type === 'error') return fail(data.message);
-      if (data.type === 'ready') { this.perf.delegate = data.delegate; this.ready = true; this.perf.start = performance.now(); clearTimeout(this.timer); return; }
+      if (data.type === 'ready') { this.perf.delegate = data.delegate; this.contours = data.contours; this.ready = true; this.perf.start = performance.now(); clearTimeout(this.timer); return; }
       if (data.type !== 'pose') return;
       this.busy = false; this.completedFrames++;
       const now = performance.now(), cap = this.captureAt.get(data.ts); this.captureAt.delete(data.ts);
