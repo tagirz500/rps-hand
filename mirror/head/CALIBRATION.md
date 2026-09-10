@@ -46,12 +46,17 @@ and motion checks.
 
 If FaceLandmarker misses after a known edge pose, the worker retries once on a
 black-padded canvas, then uses normalized patch correlation on visible eye,
-nose and forehead features for at most 450ms. Patch motion only translates the
-last landmarks in the image plane; the perspective solver remains responsible
-for the accepted 3D pose. If neither method works, linear/angular velocity coasts
-for about 350ms and saturates, then the last accepted view holds. Tracking does
-not continue indefinitely without image evidence. OffscreenCanvas-free browsers
-skip both image fallbacks and retain the bounded motion/hold behavior.
+nose and forehead features. MediaPipe does not expose hair landmarks, so the
+worker also learns high-contrast pixel features across the hairline and upper
+head cap while the face is visible. If facial landmarks disappear but those
+hair/head-outline patches remain, their measured translation advances the last
+accepted 3D eye position. Rotation stays at its last face-solved angle until
+facial geometry returns. At least three spatially consistent patches are
+required, and tracking stops when those head pixels leave the image.
+
+If none of the image methods works, linear/angular velocity coasts for about
+350ms and saturates, then the last accepted view holds. OffscreenCanvas-free
+browsers skip the pixel fallbacks and retain the bounded motion/hold behavior.
 
 After neutral subtraction, camera coordinates map to player `[-dx,-dy,dz]`.
 Apply optional measured-distance scale once, then each independent movement
@@ -76,10 +81,11 @@ The neck is capped at calibrated length plus 15 percent (at most 13.8cm), with
 excess displacement translated into the shoulders and arms together. Measured
 hip visibility does not switch the seated pelvis between two tracking sources.
 Body proportions and the support reference survive occlusion. The active BodyView
-now releases body output after 500ms without valid shoulders. RiggedAvatar eases
-into an inferred body with relaxed arms, rather than indefinitely holding a stale
-arm pose. After three failed body detections it checks at most twice per second
-until a valid body returns, preserving face-tracking time. Explicit body calibration
+follows each remaining shoulder/elbow/wrist, reconstructs a cropped shoulder from
+the connected torso, and releases body output after 220ms with no upper-body
+evidence. RiggedAvatar eases into relaxed arms rather than holding a stale pose.
+After complete detection loss it checks four times per second until a body returns.
+Explicit body calibration
 or Recenter resets them. Standing mode continues to require visible hips.
 
 The guided lean stages recommend a gain mapping the 90th-percentile comfortable
@@ -100,6 +106,9 @@ is not proof of correct physical depth or a perfect match to every face.
 edges. Use `?photo=thumbs_up.jpg` for the second face and `?axis=y` vertically.
 The checked fixtures retained every near-half-face horizontal and vertical edge
 position; this is evidence for those images, not a guarantee for all faces.
+`mirror/head/hair-verify.html` covers the face after initialization and moves the
+remaining hair/head texture; the checked fixture retained 8/8 covered-face frames,
+including seven frames driven specifically by the learned outline patches.
 
 Runtime head estimation remains monocular and approximate. Individual geometry,
 occlusion, lighting and unmeasured camera intrinsics affect results. Body pelvis

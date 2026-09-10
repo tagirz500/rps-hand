@@ -1,0 +1,18 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Hair and head-outline tracking test</title>
+<style>body{margin:20px;background:#172633;color:#eef3f7;font:15px system-ui}canvas{width:min(450px,100%);background:#eee}table{border-collapse:collapse;margin-top:14px}td,th{border:1px solid #536d7d;padding:7px}.pass{color:#76e39d}.fail{color:#ff9c9c}</style>
+<h1>Hair and head-outline tracking</h1><p>The face is visible for calibration, then fully covered while the remaining hair and outer-head texture moves. This runs the live head worker.</p>
+<canvas></canvas><table><thead><tr><th>Frame</th><th>Face</th><th>Pose</th><th>Recovery</th><th>Head texture points</th></tr></thead><tbody></tbody></table><p id="summary" role="status">Loading face model…</p>
+<script type="module">
+const image=new Image();image.src='../thumbs_up.jpg';await image.decode();const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d'),tbody=document.querySelector('tbody'),summary=document.querySelector('#summary');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+const shifts=[0,0,0,0,-.025,-.05,-.075,-.10,-.125,-.15,-.175],maskFrom=3;let index=0,hairFrames=0,trackedMasked=0;
+const worker=new Worker('./worker.mjs?v=hair9',{type:'module'}),timeout=setTimeout(()=>{summary.textContent='FAIL: timeout';worker.terminate();},90000);
+function draw(){const dx=shifts[index]*canvas.width;ctx.fillStyle='#f4f4f4';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,dx,0,canvas.width,canvas.height);if(index>=maskFrom){ctx.fillStyle='#f4f4f4';ctx.fillRect(142+dx,58,108,116);}}
+async function send(){draw();const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:1000+index*70},[frame]);}
+worker.onerror=e=>{summary.textContent='FAIL: '+e.message;clearTimeout(timeout);};
+worker.onmessage=async({data})=>{
+ if(data.type==='ready'){await send();return;}if(data.type==='error'){summary.textContent='FAIL: '+data.message;return;}
+ const masked=index>=maskFrom,ok=!!data.pose;if(masked&&ok)trackedMasked++;if(data.recoveredByHair)hairFrames++;
+ const row=tbody.insertRow();row.className=!masked||ok?'pass':'fail';for(const value of [index,masked?'covered':'visible',ok?'TRACKING':'LOST',data.recoveredByHair?'hair / outline':data.recoveredByPadding?'padding':data.landmarksDetected?'face model':data.recoveredByMotion?'face patches':'none',data.outlinePoints??0])row.insertCell().textContent=value;
+ index++;if(index<shifts.length){await send();return;}clearTimeout(timeout);worker.terminate();const maskedTotal=shifts.length-maskFrom,pass=trackedMasked>=maskedTotal-1&&hairFrames>=4;summary.className=pass?'pass':'fail';summary.textContent=`${pass?'PASS':'FAIL'}: ${trackedMasked}/${maskedTotal} covered-face frames tracked; hair/head outline recovered ${hairFrames} frames.`;
+};
+</script></html>

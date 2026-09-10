@@ -4,7 +4,7 @@ const image=new Image();image.src='../'+photo;await image.decode();
 const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d'),tbody=document.querySelector('tbody'),summary=document.querySelector('#summary');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
 // The fixture's eyes are around x=0.47. At ±0.46 width the closest eye remains at the edge.
 const shifts=[0,-.12,-.24,-.34,-.40,-.44,-.46,-.40,-.24,0,.12,.24,.34,.40,.44,.46,.40,.24,0];let index=0,passes=0,edgePasses=0;
-const worker=new Worker('./worker.mjs?v=edge7',{type:'module'}),timeout=setTimeout(()=>{summary.textContent='FAIL: timeout';worker.terminate();},90000);
+const worker=new Worker('./worker.mjs?v=hair9',{type:'module'}),timeout=setTimeout(()=>{summary.textContent='FAIL: timeout';worker.terminate();},90000);
 function draw(shift){ctx.fillStyle='#050a0e';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,axis==='x'?shift*canvas.width:0,axis==='y'?shift*canvas.height:0,canvas.width,canvas.height);}
 async function send(){draw(shifts[index]);const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:1000+index*50},[frame]);}
 worker.onerror=e=>{summary.textContent='FAIL: '+e.message;clearTimeout(timeout);};

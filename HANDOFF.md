@@ -5,7 +5,22 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?edge=8
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?hair=9
+
+## Latest: hair and outer-head tracking
+
+MediaPipe Face Landmarker has no hair landmarks, so the face worker now learns
+up to 28 high-contrast pixel patches across the player's hairline and upper-head
+cap whenever facial geometry is available. If the eyes and face disappear behind
+an occluder or camera edge, at least three spatially consistent patches can keep
+translating the last accepted 3D eye position. The last face-solved rotation is
+retained until facial landmarks return. The tracker stops when those learned head
+pixels leave the frame, preventing an indefinite background lock.
+
+Use `mirror/head/hair-verify.html` for the real-model occlusion sequence. It passed
+8/8 frames after the face was covered, with seven frames driven specifically by
+hair/head-outline correlation. The existing two real-photo edge sequences remain
+19/19, including 8/8 near-half-face frames for each fixture.
 
 ## Latest: body and arm edge recovery
 
@@ -30,7 +45,7 @@ reduced weight, retries detector misses on a padded canvas, and bridges short
 misses with correlation of visible eye/nose/forehead patches. Position and angle
 velocity coasts briefly and saturates. All recovered samples still pass the
 3D solver's quality, depth, reprojection and motion gates. See `head/edge.mjs`,
-`edge.test.mjs`, `edge-verify.html` and the Camera-edge recovery section of
+`edge.test.mjs`, `edge-verify.html`, `hair-verify.html` and the Camera-edge recovery section of
 `head/CALIBRATION.md`. The test page passed all near-half-face positions for two
 real horizontal fixtures and one vertical fixture; phone camera behavior still
 depends on lighting, blur, which eye features remain, and the browser.
@@ -84,13 +99,14 @@ describes remaining camera/face calibration limits.
 | Path | What to reuse |
 | --- | --- |
 | `mirror/index.html` | Complete static app, camera permission, room, viewpoint selector, controls and real planar mirror |
-| `mirror/head/worker.mjs` | MediaPipe FaceLandmarker in a module worker; GPU first, CPU fallback; no expression or gaze output |
+| `mirror/head/worker.mjs` | MediaPipe FaceLandmarker plus hair/head pixel continuation in a module worker; GPU first, CPU fallback; no expression or gaze output |
 | `mirror/head/HeadView.js` | Latest-frame capture, independent rotation/translation, recenter, status, camera transforms |
 | `mirror/head/pose.mjs` | Head-pose estimation, filters, movement mapping and coordinate helpers |
 | `mirror/head/spatial.mjs` | Robust perspective head fit, stable neutral capture and calibrated positional offsets |
 | `mirror/head/Calibration.js` | Optional seated-first startup, distance scale, lean-range tuning and skip/retry |
 | `mirror/head/pose.test.mjs` | Direction, recenter, dropout, limits, independent translation and response tests |
 | `mirror/head/verify.html` | Real face-model inference against an included photo without camera access |
+| `mirror/head/hair-verify.html` | Real-model covered-face test for learned hair/head-outline continuation |
 | `mirror/body/worker.mjs` | Real Pose Landmarker Lite in a module worker, no segmentation |
 | `mirror/body/BodyView.js` | Shared camera, two-face/one-body inference schedule, mode and status |
 | `mirror/body/pose.mjs` | Partial upper-body joints, connected-shoulder recovery, seated/standing calibration and filtered relative geometry |

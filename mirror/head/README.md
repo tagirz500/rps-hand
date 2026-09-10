@@ -31,7 +31,15 @@ jointly estimates rotation and eye-origin position through perspective projectio
 The face plane is only an initializer. The source is a monocular
 webcam, so this is approximate spatial tracking. Recenter while facing forward.
 
+Face detection also seeds a pixel tracker over the hairline and upper-head cap.
+When eyes and facial landmarks are occluded or cropped, at least three consistent
+hair/head-outline patches can continue 3D position translation. Head rotation
+holds its last geometry-solved angle until facial landmarks return. The outline
+tracker stops when its remaining learned pixels leave the image.
+
 Run node mirror/head/pose.test.mjs for direction, position/angle independence,
 limits, loss handling and step response. Also run spatial.test.mjs and
-calibration.test.mjs for the active position solver and startup flow. Open head/verify.html to test the real
-face model without a webcam. Use ?preview for a static room/head preview only.
+calibration.test.mjs for the active position solver and startup flow. Open
+head/verify.html to test the real face model without a webcam, head/edge-verify.html
+for camera boundaries, and head/hair-verify.html for covered-face hair tracking.
+Use ?preview for a static room/head preview only.
