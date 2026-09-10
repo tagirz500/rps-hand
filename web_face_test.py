@@ -66,6 +66,13 @@ async def run():
             await pc.wait_for_function("faceDbg.visible", timeout=60000); await asyncio.sleep(1)
             st = await pc.evaluate(STATE); print("screen: head at", st["pos"], "| visible", st["visible"], "| hands:", await pc.evaluate("[...dbgRemote ? dbgRemote.keys() : []]") if await pc.evaluate("!!window.dbgRemote") else "")
         except Exception: print("screen: NO FACE received |", await pc.inner_text("#net"))
+        # the phone tilts down 30 deg: the screen has no gravity sensor, so the pose must carry the phone's tilt
+        POSE = "() => ({ p: faceDbg.group.position.toArray().map(v => +v.toFixed(3)), r: faceDbg.group.rotation.toArray().slice(0,3).map(v => +(v*180/Math.PI).toFixed(0)) })"
+        await ph.evaluate("window.dispatchEvent(new DeviceOrientationEvent('deviceorientation', {beta: 60, gamma: 0, alpha: 0}))")
+        await asyncio.sleep(2.5)
+        a, c = await ph.evaluate(POSE), await pc.evaluate(POSE)
+        same = all(abs(x - y) <= 0.02 for x, y in zip(a["p"], c["p"])) and all(abs(x - y) <= 2 for x, y in zip(a["r"], c["r"]))
+        print("phone tilted 30 deg -> phone head", a, "| screen head", c, "| agree:", same)
         await pc.screenshot(path=os.path.join(HERE, "face_screen.png"))
         print("ERRORS:", errs or "none")
         await b.close()

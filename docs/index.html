@@ -440,13 +440,15 @@ if (Q.get("maskrot")) [MASK_FIT.rx, MASK_FIT.ry, MASK_FIT.rz] = Q.get("maskrot")
 let faceParams = null, faceSeen = -1e9, faceLm = null, faceContours = null;
 window.faceDbg = { get matrix() { return faceParams; }, get visible() { return faceGroup.visible; }, get lm() { return faceLm; }, group: faceGroup };
 const _fm = new THREE.Matrix4(), _fx = new THREE.Matrix4().makeRotationX(Math.PI), _fl = new THREE.Matrix4();
-function placeFace(p) {   // p = [rx, ry, rz, tx, ty, tz]: the head's pose in the CAMERA frame (metres, x right, y down, z away)
+function placeFace(p, tilt = tiltOn ? pitch : 0) {   // p = [rx, ry, rz, tx, ty, tz]: the head's pose in the CAMERA frame (metres, x right, y down, z away)
+  // tilt: the pitch of the camera that MEASURED this pose - the phone's own on the phone, the phone's over the wire
+  // (a PC has no gravity sensor, and the hands it receives were already levelled by the phone).
   faceParams = p;
   const r = faceRotation(p);   // row major, template -> camera
   _fm.set(r[0], r[1], r[2], 0, r[3], r[4], r[5], 0, r[6], r[7], r[8], 0, 0, 0, 0, 1);
   _fm.premultiply(_fx).multiply(_fx);   // camera frame -> our GL frame (y up, z toward the phone), on both sides of the rotation
   faceGroup.position.set(p[3], -p[4], -p[5]);
-  if (tiltOn) { _fl.makeRotationX(pitch); _fm.premultiply(_fl); faceGroup.position.applyMatrix4(_fl); }   // levelled to gravity, like the hands
+  if (tilt) { _fl.makeRotationX(tilt); _fm.premultiply(_fl); faceGroup.position.applyMatrix4(_fl); }   // levelled to gravity, like the hands
   faceGroup.quaternion.setFromRotationMatrix(_fm);
 }
 async function loadFaceAssets() {   // the canonical face (wire) and the owner's mask, both in the face frame (cm)
@@ -1109,7 +1111,7 @@ function gameMsg(m) {   // from the opponent (player) or forwarded to the screen
   if (m.a === "start") gameStart(performance.now());
   else if (m.a === "move") { game.their = m.m || "NONE"; }   // "NONE" = the opponent locked with no hand in view (still an answer)
   else if (m.a === "hud") { game.text = m.game; $("score").textContent = m.score; }
-  else if (m.a === "face" && m.p) { faceSeen = performance.now(); placeFace(m.p); }
+  else if (m.a === "face" && m.p) { faceSeen = performance.now(); placeFace(m.p, m.tl || 0); }
 }
 function updateGame(now, move) {
   if (game.phase === "count" && now - game.t0 >= 3000) { game.my = move ?? null; game.phase = "wait"; game.t0 = now; net?.sendGame({ a: "move", m: game.my }); }
@@ -1334,7 +1336,7 @@ async function main() {
       if (fit && head.spatial.seen > faceSeen) {
         faceSeen = head.spatial.seen; placeFace(fit.parameters);
         dbg.head = { reproj: fit.error, depth: fit.position[2], yaw: fit.yaw, pitch: fit.pitch };   // tests: the fit's own residual (fraction of the frame width) and metric head
-        net?.sendGame({ a: "face", p: fit.parameters.map(v => Math.round(v * 1e4) / 1e4) }, true);
+        net?.sendGame({ a: "face", p: fit.parameters.map(v => Math.round(v * 1e4) / 1e4), tl: tiltOn ? Math.round(pitch * 1e4) / 1e4 : 0 }, true);   // "tl", not "t": sendGame spreads the message over { t: "g" } and a key named t would replace the message type
       }
     }
     faceGroup.visible = now - faceSeen < 700 && VIEWS[view] === "mirror";

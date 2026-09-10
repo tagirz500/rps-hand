@@ -1154,5 +1154,20 @@ Two other things fixed while testing:
   the screen's own code through PC LINK. `PYTHONIOENCODING=utf-8` is needed on this PC or the emoji in the button
   labels crashes the print.
 
+**Review of the port, and what it found.**
+- **The PC screen levelled the received head with its own gravity** - which a PC does not have - while the hands
+  arrive already levelled by the phone, so on a tilted phone the wire face sat rotated away from the hands. The pose
+  now carries the tilt of the camera that measured it (`tl` in the face message) and `placeFace(p, tilt)` uses it.
+  `web_face_test.py` tilts the phone 30 deg and requires the screen to place the head within 2 cm and 2 deg of the
+  phone: both now report `[0.002, 0.304, -0.301] r [67, 3, 3]`.
+- **Do not name a payload key `t`.** `net.sendGame` sends `{ t: "g", ...msg }`, so a message field called `t`
+  replaces the message TYPE and the packet is silently dropped at the other end. That is exactly what the first cut
+  of the tilt fix did, and the only symptom was "screen: NO FACE received".
+- `PALMS_ONLY` now depends on `cutArm` at load: the old draw-time collapse of the forearm bones is gone, so a paired
+  rig whose `.json` has no `extra` for both `hand` and `forearm` would render the whole arm. All three rigs we ship
+  (`arm`, `armscan`, `thing`) carry both, so this is latent, not live.
+- `FINGER_RAD` (7.5 mm axis-to-axis 15 mm) was not raised with `FINGER_FAT` (1.15 -> 1.3), so drawn fingers can still
+  overlap by about a tenth at contact. Left as it is: both numbers are his, verbatim, and the renders look right.
+
 The head's eye-centre reprojection is the new check in `web_face_test.py`: it projects the placed head back into the
 picture with the same pinhole model the hands use and compares it with landmarks 33/263. Under 2 % is on the face.
