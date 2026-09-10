@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import {upperBodyPose,BodyPose} from './pose.mjs';
+const fixture=()=>{
+  const image=Array.from({length:33},()=>({x:.5,y:.5,z:0,visibility:1,presence:1}));
+  const world=image.map(()=>({x:0,y:0,z:0}));
+  for(const [i,x,y,z] of [[2,-.03,-.65,0],[5,.03,-.65,0],[11,-.2,-.45,.08],[12,.2,-.45,.08],
+    [13,-.25,-.2,-.1],[14,.25,-.2,-.1],[15,-.28,-.1,-.3],[16,.28,-.1,-.3],[23,-.14,0,.08],[24,.14,0,.08]]) world[i]={x,y,z};
+  return {image,world};
+};
+const {image,world}=fixture(),p=upperBodyPose(image,world);
+assert.ok(p&&p.hipsTracked);
+assert.ok(p.joints.leftShoulder[0]>0&&p.joints.leftShoulder[1]<0);
+assert.ok(p.joints.leftWrist[2]<0,'Reaching toward webcam puts arm in front of viewer');
+const shifted=world.map(v=>({x:v.x+3,y:v.y+4,z:v.z+5}));
+const relative=upperBodyPose(image,shifted);
+for(const key of Object.keys(p.joints))p.joints[key].forEach((v,i)=>assert.ok(Math.abs(v-relative.joints[key][i])<1e-10));
+assert.equal(upperBodyPose(null,world),null);
+const bad=fixture();bad.world[11].x=NaN;assert.equal(upperBodyPose(bad.image,bad.world),null);
+const hidden=fixture();hidden.image[11].visibility=.1;assert.equal(upperBodyPose(hidden.image,hidden.world),null);
+const cropped=fixture();cropped.image[23].y=1.2;cropped.image[24].y=1.2;cropped.image[15].x=-.1;
+const seat=upperBodyPose(cropped.image,cropped.world);assert.equal(seat.hipsTracked,false);assert.equal(seat.joints.leftWrist,null);
+const seated=new BodyPose();for(let i=0;i<12;i++)seated.receive(seat,i*66);
+assert.ok(seated.neutral);let joints=seated.update(730,.016);assert.ok(joints.leftHip);assert.equal(joints.leftWrist,null);
+assert.equal(seated.signals.hipsTracked,false);
+assert.equal(seated.update(1400,.016),null,'Stale body disappears');
+seated.receive(seat,2500);assert.equal(seated.neutral,null,'Long loss starts fresh calibration');
+const standing=new BodyPose('standing');for(let i=0;i<20;i++)standing.receive(seat,i*66);
+assert.equal(standing.neutral,null,'Hidden hips must not calibrate standing mode');
+for(let i=0;i<12;i++)standing.receive(p,1400+i*66);
+assert.ok(standing.neutral&&standing.update(2150,.016));
+standing.receive(seat,2200);assert.equal(standing.update(2200,.016),null);
+standing.receive(p,2300);assert.ok(standing.update(2300,.016));
+assert.equal(standing.update(2300,.016,false),null,'Paused view has no body output');
+standing.recenter('seated');assert.equal(standing.neutral,null);assert.equal(standing.mode,'seated');
+console.log('PASS: body coordinates, depth sign, hip-relative origin removal, finite/visibility checks, seated/standing calibration, occlusion, pause and reacquisition');

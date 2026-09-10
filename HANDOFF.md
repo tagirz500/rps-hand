@@ -1,18 +1,19 @@
-# Head tracking and 3D mirror: start here
+# Head and upper-body tracking: start here
 
-This branch contains the complete current head-only prototype, its cropped sculpture
+This branch contains the current head and upper-body prototype, its cropped sculpture
 model, editable Blender sources, processing script and tests. The current runnable
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?fast=7
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?body=1
 
 ## For the next coding session
 
 Read this file, then `mirror/head/README.md`, `HeadView.js`, `pose.mjs`, and
 `worker.mjs`. Review or reuse those components independently. Keep head angles
-(rotation) separate from head position (translation). The user's latest requirement
-is head only; do not bring hands back unless explicitly requested.
+(rotation) separate from head position (translation). The user has now approved
+upper-body tracking for seated and standing play. Read `mirror/body/README.md`
+for calibration, coordinates, scheduling and limits. Detailed hands remain absent.
 
 ## Current files
 
@@ -24,6 +25,12 @@ is head only; do not bring hands back unless explicitly requested.
 | `mirror/head/pose.mjs` | Head-pose estimation, filters, movement mapping and coordinate helpers |
 | `mirror/head/pose.test.mjs` | Direction, recenter, dropout, limits, independent translation and response tests |
 | `mirror/head/verify.html` | Real face-model inference against an included photo without camera access |
+| `mirror/body/worker.mjs` | Real Pose Landmarker Lite in a module worker, no segmentation |
+| `mirror/body/BodyView.js` | Shared camera, two-face/one-body inference schedule, mode and status |
+| `mirror/body/pose.mjs` | Visible upper-body joints, seated/standing calibration and filtered relative geometry |
+| `mirror/body/TrackedBody.js` | Articulated torso and arms ending at wrists; first/third person and mirror |
+| `mirror/body/verify.html` | Real-model reference photo, cropped-upper-body and standing checks |
+| `mirror/body/*.test.mjs` | Coordinate, occlusion, calibration and inference scheduling tests |
 | `mirror/avatar/TrackedHead.js` | Local sculpture avatar and collapsible preview; layer separation for first person/reflection |
 | `mirror/avatar/head.glb` | Cropped, capped, optimized sculpture head, about 1.18 MB |
 | `mirror/avatar/README.md` | Asset provenance, geometry processing and mirror rendering notes |
@@ -46,6 +53,8 @@ or a suitable HTTPS host. Runtime/model downloads require network access.
 
 ```sh
 node mirror/head/pose.test.mjs
+node mirror/body/pose.test.mjs
+node mirror/body/scheduler.test.mjs
 blender -b -t 4 --python tools/head-rig/build.py
 ```
 
@@ -56,6 +65,8 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
 
 1. The existing front-camera stream supplies frames to one face worker. Capture
    is capped at roughly 30fps, at 384px width, with at most one frame in flight.
+   When body tracking is enabled, two face results earn one body inference slot.
+   Inference never overlaps; slow devices lower body capture from 15fps to 8fps.
    The camera requests 60fps where available. Actual speed depends on the device.
 2. Cheeks 234/454 and forehead/chin 10/152 define a head plane. The cross-product
    normal yields yaw/pitch relative to Recenter. Fixed outer-eye corners 33/263
@@ -76,6 +87,16 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
 7. The avatar lives on layer 1: invisible to its own first-person camera, visible
    to third person and the Reflector camera. Update the avatar before rendering
    the mirror. The mirror/frame are hidden in third person to avoid obstruction.
+8. Pose Lite estimates shoulders, elbows, wrists and hips. Twelve valid frames
+   calibrate body proportions. Seated mode can infer a neutral lower torso when
+   hips are hidden; standing requires visible hips. Missing arm joints disappear.
+   After 500ms without a usable torso, hide it and continue head-only rendering.
+9. Body world landmarks are hip-relative shape, not absolute position. Subtract
+   pose eyes 2/5, map to the mirrored player frame, then add camera position once.
+   Torso/arm articulation comes from pose geometry; navigation turn gain affects
+   only the camera. The sculpture now renders physical head angles.
+10. The larger mirror shows the torso and arms. Body: off terminates the pose
+    worker. Calibrate body changes body calibration only; Recenter resets both.
 
 The status readout reports result FPS and frame-capture-to-result processing
 latency. It does not measure total sensor-to-screen latency. Synthetic response
@@ -91,7 +112,7 @@ face visible. Third-person inspection and the mirror are diagnostic views, not
 proof of anatomical or metric accuracy. No secret/API key is needed.
 
 The static page uses Three.js 0.186.0 and MediaPipe Tasks Vision 1.0.1 from jsDelivr,
-plus Google's public face model. The latest-frame worker, pose helpers, rendering
+plus Google's public face and Pose Lite models. The latest-frame workers, pose helpers, rendering
 and cropped model can each be reused without copying the whole app.
 
 ## Earlier hand components, if separately needed
@@ -108,4 +129,4 @@ and `tools/hand-rig/`.
 
 Use a complete historical revision when running an older example; mixing its
 entrypoint with current modules can introduce API/version mismatches. Do not
-replace the current head-only entrypoint just to retrieve a hand component.
+replace the current entrypoint just to retrieve a hand component.

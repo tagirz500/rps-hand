@@ -1,18 +1,32 @@
 <!doctype html>
 
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Head VR view</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Head & body VR view</title>
 
 <style>
 
 :root{color-scheme:dark}*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#172633;color:#eef3f7;font:14px system-ui}#gl{display:block;width:100%;height:100%}#controls{position:absolute;top:16px;left:14px;right:14px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}h1{font-size:13px;letter-spacing:.14em;flex-basis:100%;margin:0 0 5px}button,select{font:inherit;color:inherit;background:#27394c;border:1px solid #576a7d;padding:9px 12px;border-radius:9px}label{display:flex;gap:8px;align-items:center}input{width:90px;accent-color:#9dc7ed}#head-status{flex-basis:100%;font-size:13px;text-shadow:0 1px 4px #000}#cam{position:absolute;right:14px;bottom:16px;width:150px;height:112px;object-fit:cover;transform:scaleX(-1);border-radius:10px;opacity:0;pointer-events:none}body.show-camera #cam{opacity:1}#head-preview{position:absolute;left:14px;bottom:16px;background:#192633;border:1px solid #526070;border-radius:10px;overflow:hidden}summary{padding:8px;cursor:pointer;font-size:12px}#head-canvas{display:block;width:140px;height:170px}#status{position:fixed;inset:0;display:grid;place-items:center;background:#172633;text-align:center;padding:24px;z-index:10}#hint{position:absolute;right:14px;bottom:140px;font-size:12px;color:#b8c9d5;max-width:180px;text-align:right}
 
+#controls{max-height:48vh;overflow:auto;background:linear-gradient(#172633ed,#172633b0);padding:12px;border-radius:12px;top:10px;left:10px;right:10px}#body-status{flex-basis:100%;font-size:13px}#movement-controls{flex-basis:100%}#movement-controls summary{font-size:14px;padding:6px 0}#movement-sliders{display:flex;flex-wrap:wrap;gap:12px;padding-top:8px}#movement-sliders output{min-width:3em}#calibrate-body{border-color:#8fb7c8}@media(max-width:600px){#controls{gap:8px}button,select{padding:8px;font-size:14px}h1{margin-bottom:0}#hint{bottom:24px;max-width:160px}}
 </style></head><body>
 
 <canvas id="gl"></canvas><video id="cam" autoplay muted playsinline></video>
 
-<div id="controls"><h1>HEAD VR VIEW</h1><select id="head-mode" aria-label="Head tracking"><option value="first">Head tracking on</option><option value="off">Pause view</option></select><select id="view-mode" aria-label="Viewpoint"><option value="third">Third person</option><option value="first">First person + mirror</option></select><button id="recenter">Recenter</button><button id="show-camera">Show camera</button><label>Head turn <input id="head-sensitivity" aria-label="Head turn sensitivity" type="range" min="0.5" max="4" step="0.25" value="1.5"><output id="gain">1.5×</output></label><label>Left / right <input id="lateral-sensitivity" aria-label="Left right movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="lateral-gain">2×</output></label><label>Forward / back <input id="depth-sensitivity" aria-label="Forward back movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="depth-gain">2×</output></label><label>Up / down <input id="vertical-sensitivity" aria-label="Up down movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="vertical-gain">2&#215;</output></label><div id="head-status" role="status">Look straight ahead to set the center</div></div>
+<div id="controls">
+<h1>HEAD &amp; BODY VR VIEW</h1>
+<select id="head-mode" aria-label="Head tracking"><option value="first">Head tracking on</option><option value="off">Pause view</option></select>
+<select id="view-mode" aria-label="Viewpoint"><option value="third">Third person</option><option value="first">First person + mirror</option></select>
+<select id="body-mode" aria-label="Body tracking mode"><option value="seated">Body: seated</option><option value="standing">Body: standing</option><option value="off">Body: off</option></select>
+<button id="recenter">Recenter</button><button id="calibrate-body">Calibrate body</button><button id="show-camera">Show camera</button>
+<details id="movement-controls"><summary>Movement sensitivity</summary><div id="movement-sliders">
+<label>Head turn <input id="head-sensitivity" aria-label="Head turn sensitivity" type="range" min="0.5" max="4" step="0.25" value="1.5"><output id="gain">1.5×</output></label>
+<label>Left / right <input id="lateral-sensitivity" aria-label="Left right movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="lateral-gain">2×</output></label>
+<label>Forward / back <input id="depth-sensitivity" aria-label="Forward back movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="depth-gain">2×</output></label>
+<label>Up / down <input id="vertical-sensitivity" aria-label="Up down movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="vertical-gain">2×</output></label>
+</div></details>
+<div id="head-status" role="status">Look straight ahead to set the center</div><div id="body-status" role="status">Keep your face, shoulders and arms in view</div>
+</div>
 
-<details id="head-preview"><summary id="head-label">Your head</summary><canvas id="head-canvas" aria-label="Tracked sculpture head preview"></canvas></details><div id="hint">Third person shows your head.<br>Switch to first person to test the mirror.</div><div id="status">Starting camera…</div>
+<details id="head-preview"><summary id="head-label">Your head</summary><canvas id="head-canvas" aria-label="Tracked sculpture head preview"></canvas></details><div id="hint">Sit or stand naturally to calibrate.<br>Use first person to test the mirror.</div><div id="status">Starting camera…</div>
 
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"}}</script>
 
@@ -22,11 +36,13 @@ import * as THREE from 'three';
 
 import {Reflector} from 'three/addons/objects/Reflector.js';
 
-import {HeadView} from './head/HeadView.js?v=move9';
+import {HeadView} from './head/HeadView.js?v=body1';
+import {BodyView} from './body/BodyView.js?v=body1';
+import {TrackedBody} from './body/TrackedBody.js?v=body1';
 
 
 
-import {TrackedHead} from './avatar/TrackedHead.js?v=headonly4';
+import {TrackedHead} from './avatar/TrackedHead.js?v=body1';
 
 const $=id=>document.getElementById(id), Q=new URLSearchParams(location.search);
 
@@ -42,15 +58,15 @@ const shell=new THREE.Mesh(new THREE.BoxGeometry(6,3.5,7),new THREE.MeshStandard
 
 const floor=new THREE.GridHelper(6,24,0x9eacb7,0x526674);floor.position.set(0,-1.29,-1.5);scene.add(floor);
 
-const table=new THREE.Mesh(new THREE.BoxGeometry(1.8,.06,.8),new THREE.MeshStandardMaterial({color:0x997c61,roughness:.85}));table.position.set(0,-.55,-1);scene.add(table);
+const table=new THREE.Mesh(new THREE.BoxGeometry(1.8,.06,.8),new THREE.MeshStandardMaterial({color:0x997c61,roughness:.85}));table.position.set(1.7,-.55,-1.6);scene.add(table);
 
-for(const x of [-.8,.8])for(const z of [-.7,-1.3]){const leg=new THREE.Mesh(new THREE.BoxGeometry(.05,.72,.05),new THREE.MeshStandardMaterial({color:0x1c2730,roughness:.6}));leg.position.set(x,-.94,z);scene.add(leg);}
+for(const x of [.9,2.5])for(const z of [-1.3,-1.9]){const leg=new THREE.Mesh(new THREE.BoxGeometry(.05,.72,.05),new THREE.MeshStandardMaterial({color:0x1c2730,roughness:.6}));leg.position.set(x,-.94,z);scene.add(leg);}
 
 // Real planar reflection. Layer 1 contains the head hidden from its own eyes.
 
-const mirror=new Reflector(new THREE.PlaneGeometry(.95,1.05),{color:0xc5cdd5,textureWidth:768,textureHeight:768,clipBias:.003,multisample:0});
+const mirror=new Reflector(new THREE.PlaneGeometry(1.3,1.6),{color:0xc5cdd5,textureWidth:768,textureHeight:768,clipBias:.003,multisample:0});
 
-mirror.position.set(0,.035,-.78);scene.add(mirror);
+mirror.position.set(0,-.3,-1.15);scene.add(mirror);
 
 mirror.getReflectionCamera(camera).layers.enable(1);
 
@@ -58,15 +74,16 @@ const mirrorFrame=[];
 
 const frameMaterial=new THREE.MeshStandardMaterial({color:0xb5a791,metalness:.65,roughness:.3});
 
-for(const [x,y,w,h] of [[-.49,.035,.03,1.11],[.49,.035,.03,1.11],[0,.575,.95,.03],[0,-.505,.95,.03]]){
+for(const [x,y,w,h] of [[-.665,-.3,.03,1.66],[.665,-.3,.03,1.66],[0,.515,1.3,.03],[0,-1.115,1.3,.03]]){
 
- const bar=new THREE.Mesh(new THREE.BoxGeometry(w,h,.035),frameMaterial);bar.position.set(x,y,-.79);scene.add(bar);mirrorFrame.push(bar);
+ const bar=new THREE.Mesh(new THREE.BoxGeometry(w,h,.035),frameMaterial);bar.position.set(x,y,-1.16);scene.add(bar);mirrorFrame.push(bar);
 
 }
 
-const observer=new THREE.PerspectiveCamera(55,1,.03,15);observer.position.set(.85,.35,-1.1);observer.lookAt(0,-.08,-.25);observer.layers.enable(1);mirror.getReflectionCamera(observer).layers.enable(1);
+const observer=new THREE.PerspectiveCamera(55,1,.03,15);observer.position.set(1,.35,-1.8);observer.lookAt(0,-.32,0);observer.layers.enable(1);mirror.getReflectionCamera(observer).layers.enable(1);
 
-let avatar=null,head=null;
+let avatar=null,head=null,body=null;
+const bodyAvatar=new TrackedBody(scene);
 
 try{avatar=new TrackedHead(scene,$('head-canvas'),$('head-label'));}catch{$('head-label').textContent='Head preview unavailable';}
 
@@ -77,15 +94,17 @@ addEventListener('resize',resize);resize();
 for(const [input,output] of [['head-sensitivity','gain'],['lateral-sensitivity','lateral-gain'],['depth-sensitivity','depth-gain'],['vertical-sensitivity','vertical-gain']]) $(input).oninput=()=>$(output).textContent=$(input).value+'\u00d7';
 $('show-camera').onclick=()=>{$('show-camera').textContent=document.body.classList.toggle('show-camera')?'Hide camera':'Show camera';};
 
-let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);avatar?.update(camera,head,now);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
+let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);avatar?.update(camera,head,now);bodyAvatar.update(camera,body?.joints);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 async function start(){
 
- if(Q.has('preview')){$('status').remove();$('head-status').textContent='Scene preview · open without ?preview for live head tracking';$('recenter').disabled=true;return;}
+ if(Q.has('preview')){$('status').remove();$('head-status').textContent='Scene preview · open without ?preview for live tracking';$('body-status').textContent='Body appears when tracking starts';$('recenter').disabled=true;$('calibrate-body').disabled=true;return;}
 
  const video=$('cam');video.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:60}},audio:false});await video.play();
 
  head=new HeadView(video,camera,{mode:$('head-mode'),recenter:$('recenter'),status:$('head-status'),sensitivity:$('head-sensitivity'),lateralSensitivity:$('lateral-sensitivity'),depthSensitivity:$('depth-sensitivity'),verticalSensitivity:$('vertical-sensitivity'),hfov:Math.PI/3});$('status').remove();
+ body=new BodyView(video,head,{mode:$('body-mode'),status:$('body-status'),recenter:$('calibrate-body')});head.body=body;
+ $('recenter').addEventListener('click',()=>body.pose.recenter($('body-mode').value));
 
 }
 

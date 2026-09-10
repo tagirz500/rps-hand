@@ -1,8 +1,9 @@
-# Responsive head-only VR view
+# Responsive head camera controller
 
-The active page contains only head tracking, the sculpture head, room and mirror.
+The active page combines head tracking with optional seated/standing upper-body
+tracking. See `../body/README.md` for the body model and calibration.
 Hand rendering, hand detection, hand fixtures and object manipulation modules were
-removed from this route. Do not restore them without a new explicit request.
+removed from this route. Detailed hands remain absent; body arms end at the wrists.
 Historical hand work is recoverable from Git history.
 
 Rotation and translation remain independent. Default turn sensitivity is 1.5x.
@@ -14,7 +15,9 @@ shows the head from an external camera; first person includes its mirror reflect
 Latency changes: capture cap raised from 10fps to about 30fps; request a 60fps
 camera where available; latest-frame-only worker inference (one frame in flight);
 384px capture width; GPU face detection with CPU fallback. No hand worker competes
-for CPU/GPU. Frame rate depends on the device and camera. The HUD reports actual
+for CPU/GPU. Optional body inference gets one slot per two completed face frames;
+the tasks never run inference concurrently. Body: off restores head-only scheduling.
+Frame rate depends on the device and camera. The HUD reports actual
 inference-result fps and capture-to-result latency, not end-to-end camera latency.
 
 Filtering uses 12ms time constants during fast changes, 30ms for smaller rotations

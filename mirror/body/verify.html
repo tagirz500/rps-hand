@@ -1,0 +1,36 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Body tracking verification</title>
+<style>body{background:#172633;color:#eef3f7;font:16px system-ui;margin:24px}canvas{width:48%;height:auto;vertical-align:top}pre{white-space:pre-wrap}button{font:inherit;padding:10px}</style>
+<h1>Body tracking verification</h1><p>This runs the real pose model on an included photo. Camera access is not required.</p>
+<p id="status" role="status">Loading pose model…</p><canvas id="image"></canvas><canvas id="avatar"></canvas><pre id="result"></pre>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {TrackedBody} from './TrackedBody.js?v=body1';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {BodyPose} from './pose.mjs?v=body1';
+const status=document.querySelector('#status'),result=document.querySelector('#result'),canvas=document.querySelector('canvas');
+const query=new URLSearchParams(location.search);
+const photo=new Image();photo.src=query.has('occluded')?'../woman_hands.jpg':'./pose-example.jpg';await photo.decode();canvas.width=photo.width;canvas.height=query.has('crop')?Math.round(photo.height*.62):photo.height;canvas.getContext('2d').drawImage(photo,0,0);
+const worker=new Worker('./worker.mjs?v=body1',{type:'module'});const pose=new BodyPose(query.has('standing')?'standing':'seated');let count=0;const timings=[];
+const timeout=setTimeout(()=>{status.textContent='FAIL: timeout';worker.terminate();},60000);
+const finish=message=>{clearTimeout(timeout);status.textContent=message;worker.terminate();};
+const send=async()=>{const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:performance.now()},[frame]);};
+worker.onerror=e=>finish('FAIL: '+e.message);
+worker.onmessage=async({data})=>{
+ if(data.type==='ready'){await send();return;}
+ if(data.type==='error'){finish('FAIL: '+data.message);return;}
+ if(!data.pose){finish(query.has('occluded')?'PASS: obscured shoulders rejected; head-only fallback required':'FAIL: no usable upper-body pose in fixture');return;}
+ pose.receive(data.pose,performance.now());timings.push(data.inferenceMs);count++;
+ if(count<16){await send();return;}
+ const joints=pose.update(performance.now(),.016);
+ result.textContent=JSON.stringify({frames:count,meanInferenceMs:Math.round(timings.slice(2).reduce((a,b)=>a+b,0)/(timings.length-2)),hipsTracked:pose.hipsTracked,joints},null,2);
+ if(joints){
+   const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('#avatar'),antialias:true});renderer.setSize(600,600,false);
+   const scene=new THREE.Scene();scene.background=new THREE.Color(0x243946);scene.add(new THREE.HemisphereLight(0xffffff,0x647e92,3));
+   const camera=new THREE.PerspectiveCamera(55,1,.03,10);camera.position.set(.15,-.1,-1.8);camera.lookAt(0,-.35,0);
+   const body=new TrackedBody(scene);body.update({position:new THREE.Vector3()},joints);
+   const head=await new GLTFLoader().loadAsync('../avatar/head.glb');scene.add(head.scene);renderer.render(scene,camera);
+ }
+ finish(joints?'PASS: real upper-body model, calibration, filtered joints and 3D avatar':'FAIL: calibration');
+};
+</script></html>

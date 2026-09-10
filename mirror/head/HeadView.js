@@ -9,10 +9,12 @@ export class HeadView {
     this.lateralSensitivity=lateralSensitivity; this.depthSensitivity=depthSensitivity; this.verticalSensitivity=verticalSensitivity;
     this.performance={fps:0,frames:0,start:performance.now(),latency:0,delegate:""};
     this.lastCapture = -Infinity; this.lastVideo = -1;
+    this.completedFrames=0;
     this.worker = new Worker(new URL('./worker.mjs?v=fast7', import.meta.url), { type: 'module' });
     const fail = () => { this.failed = true; this.busy = false; this.worker.terminate(); clearTimeout(this.timer); };
     this.worker.onerror = fail;
     this.worker.onmessage = ({ data }) => {
+      if(data.type==='pose')this.completedFrames++;
       if (data.type === 'error') return fail();
       if (data.type === 'ready') { this.performance.delegate=data.delegate; this.ready = true; clearTimeout(this.timer); }
       if (data.type === 'pose') { this.busy = false; const now=performance.now(); this.performance.frames++; this.performance.latency=now-data.ts; if(now-this.performance.start>=1000){this.performance.fps=Math.round(this.performance.frames*1000/(now-this.performance.start));this.performance.frames=0;this.performance.start=now;} this.pose.receive(data.pose, now); this.window.receive(data.pose, now, video.videoWidth/video.videoHeight, this.hfov); }
@@ -23,7 +25,7 @@ export class HeadView {
     addEventListener('pagehide', () => { this.worker.terminate(); clearTimeout(this.timer); }, { once: true });
   }
   async capture(now) {
-    if (this.failed || !this.ready || this.busy || this.pose.mode === 'off' || document.hidden || now-this.lastCapture < 30 || this.video.readyState < 2 || this.video.currentTime === this.lastVideo) return;
+    if (this.failed || !this.ready || this.busy || this.body?.busy || this.body?.wantsFrame(now) || this.pose.mode === 'off' || document.hidden || now-this.lastCapture < 30 || this.video.readyState < 2 || this.video.currentTime === this.lastVideo) return;
     this.busy = true; this.lastCapture = now; this.lastVideo = this.video.currentTime;
     try {
       const width = Math.min(384, this.video.videoWidth);

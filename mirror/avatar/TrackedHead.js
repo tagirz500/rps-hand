@@ -23,7 +23,9 @@ export class TrackedHead {
     },undefined,()=>{this.label.textContent='Head model unavailable';});
   }
   update(camera, headView, now) {
-    this.object.position.copy(camera.position); this.object.quaternion.copy(camera.quaternion);
+    this.object.position.copy(camera.position);
+    // The avatar shows physical head angles; only the view uses navigation gain.
+    this.object.rotation.set(headView?.pose.physicalPitch??0,headView?.pose.physicalYaw??0,0,'YXZ');
     const tracking=headView && now-headView.pose.seen<650;
     // Preview is a mirror of the user's pose, without the navigation gain.
     this.turn.rotation.set(-(headView?.pose.physicalPitch??0),-(headView?.pose.physicalYaw??0),0,'YXZ');
