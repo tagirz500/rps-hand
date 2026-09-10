@@ -1140,6 +1140,18 @@ revolver), and `NHANDS` default 1 (this app needs both hands; `?hands=1` is ther
 | head found on robbie_v | 0.547 m | 0.413 m, eye centre reprojects 0.04 % of the frame off the tracked eyes |
 | head found on seated_desk (2 hands) | 1.268 m | 0.974 m, 0.21 % off |
 | movement unit tests | 67 pass | 73 pass |
+| `[face woman_hands]` / `[face seated_desk]` in `web_hard_test.py` | FAIL (our page had no `dbg.head`) | **OK** reproj 0.40 % / 0.21 %, depth 0.49 m / 0.97 m |
+| `web_gun_test.py` fist pickup | the revolver fell on the floor within a second | **holder Right**, held |
+| `web_lobby_test.py`, `web_net_test.py` | - | lobby, quick match, screen link and a full round pass on the live site |
+
+Two other things fixed while testing:
+- **The revolver fell out of your hand.** `gunUpdate` dropped it the instant the holder's hand was missing from one
+  rendered frame, and a single slow tracker frame is enough (`hold` is only 250 ms). It now keeps the revolver for 1 s
+  (`gun.heldSeen`). This was build 45 behaviour too - the live site showed exactly the same `holder None`.
+- **Stale harnesses.** `web_lobby_test.py` still looked for the `#pickTrack` button removed in build 43, and
+  `web_net_test.py` still used build 27's auto-match and `?screen=<phone code>`; both now use the lobby (`#quick`) and
+  the screen's own code through PC LINK. `PYTHONIOENCODING=utf-8` is needed on this PC or the emoji in the button
+  labels crashes the print.
 
 The head's eye-centre reprojection is the new check in `web_face_test.py`: it projects the placed head back into the
 picture with the same pinhole model the hands use and compares it with landmarks 33/263. Under 2 % is on the face.
