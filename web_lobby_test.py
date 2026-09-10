@@ -23,7 +23,7 @@ async def run():
         net = lambda pg: pg.inner_text("#net")
         # start screen (no query): both choices present
         s = await (await b.new_context()).new_page(); await s.goto(BASE, wait_until="load")
-        print("start screen:", await s.evaluate("() => !document.getElementById('start').hidden"), "| buttons:", [await s.inner_text(x) for x in ("#pickTrack", "#pickScreen", "#pickBoth")])
+        print("start screen:", await s.evaluate("() => !document.getElementById('start').hidden"), "| buttons:", [await s.inner_text(x) for x in ("#pickScreen", "#pickBoth", "#pickMap")])
         await s.click("#pickScreen"); await s.wait_for_url(lambda u: "screen" in u, timeout=10000); print("SCREEN choice ->", s.url.split("?")[1])
         await s.context.close()
 
