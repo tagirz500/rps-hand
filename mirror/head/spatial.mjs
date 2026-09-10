@@ -16,6 +16,11 @@ const source=[
 export const template=source.map(([id,x,y,z])=>({id,point:[x,2.663991-y,3.173422-z].map(v=>v*.09/8.891718)}));
 const bound=(v,a,b)=>Math.max(a,Math.min(b,v));
 export const median=a=>[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)];
+const angleDistance=(a,b)=>{
+ if(!a?.parameters||!b?.parameters)return 0;
+ const x=rotation(a.parameters),y=rotation(b.parameters);
+ return Math.acos(bound((x.reduce((s,v,i)=>s+v*y[i],0)-1)/2,-1,1));
+};
 export function rotation([rx,ry,rz]){
  const a=Math.cos(rx),b=Math.sin(rx),c=Math.cos(ry),d=Math.sin(ry),e=Math.cos(rz),f=Math.sin(rz);
  return [e*c,e*d*b-f*a,e*d*a+f*b,f*c,f*d*b+e*a,f*d*a-e*b,-d,c*b,c*a];
@@ -64,26 +69,40 @@ export function fitHead(points,aspect,prior,hfov=Math.PI/3,previous=null){
  }
  const rs=residual(p),error=Math.sqrt(rs.reduce((s,r)=>s+r*r,0)/samples.length),r=rotation(p);
  if(!p.every(Number.isFinite)||error>Math.min(.025,prior.span*.12)||p[5]<.18||p[5]>2||r[8]<.25)return null;
- return {position:p.slice(3),yaw:Math.atan2(r[2],r[8]),pitch:Math.atan2(r[5],Math.hypot(r[2],r[8])),error,parameters:p};
+ const inliers=rs.filter(v=>Math.abs(v)<.012).length/rs.length;
+ if(inliers<.75)return null;
+ return {position:p.slice(3),yaw:Math.atan2(r[2],r[8]),pitch:Math.atan2(r[5],Math.hypot(r[2],r[8])),error,quality:inliers,parameters:p};
 }
 
 export class SpatialPose{
- constructor(){this.neutral=null;this.scale=1;this.seen=-Infinity;this.target=[0,0,0];this.eye=[0,0,0];this.latest=null;}
- recenter(){this.neutral=null;this.target=[0,0,0];this.eye=[0,0,0];}
+ constructor(){this.neutral=null;this.scale=1;this.seen=-Infinity;this.target=[0,0,0];this.eye=[0,0,0];this.latest=null;this.pending=null;this.recoveryUntil=0;}
+ recenter(){this.neutral=null;this.target=[0,0,0];this.eye=[0,0,0];this.latest=null;this.pending=null;this.seen=-Infinity;}
  calibrate(samples,distance=null){
   const center=[0,1,2].map(i=>median(samples.map(s=>s.position[i])));
   this.neutral=center;this.scale=distance?bound(distance/center[2],.4,2.5):1;this.target=[0,0,0];this.eye=[0,0,0];
  }
  receive(fit,now){
-  if(!fit)return;
+  if(!fit||fit.position?.length!==3||!fit.position.every(Number.isFinite)||fit.position[2]<.18||fit.position[2]>2||(fit.quality??1)<.75)return false;
+  if(this.latest){
+   const elapsed=(now-this.seen)/1000,jump=Math.hypot(...fit.position.map((v,i)=>v-this.latest.position[i]));
+   // Corroborate isolated jumps with another camera frame; preserve fast normal motion.
+   if(jump>Math.max(.07,Math.min(.15,elapsed*2.5))||angleDistance(fit,this.latest)>Math.max(.4,Math.min(.8,elapsed*10))){
+    const confirmed=this.pending&&now-this.pending.now<250&&Math.hypot(...fit.position.map((v,i)=>v-this.pending.fit.position[i]))<.045&&angleDistance(fit,this.pending.fit)<.2;
+    if(!confirmed){this.pending={fit,now};return false;}
+   }
+   if(now-this.seen>650)this.recoveryUntil=now+350;
+  }
+  this.pending=null;
   this.latest=fit;this.seen=now;this.neutral??=[...fit.position];
   const raw=fit.position.map((v,i)=>(v-this.neutral[i])*this.scale*(i<2?-1:1));
   this.target=raw.map((v,i)=>bound(v,i===1?-.3:-.5,i===1?.3:.5));
+  return true;
  }
  update(now,dt,enabled=true){
-  const target=enabled&&now-this.seen<650?this.target:[0,0,0];
+  // Hold position through loss rather than moving the player back to the origin.
+  const target=enabled?this.target:[0,0,0];
   const moving=Math.hypot(...target.map((v,i)=>v-this.eye[i]))>.008;
-  const a=1-Math.exp(-Math.min(dt,.1)/(moving?.016:.055));
+  const a=1-Math.exp(-Math.min(dt,.1)/(now<this.recoveryUntil?.12:moving?.016:.055));
   this.eye=this.eye.map((v,i)=>enabled?v+(target[i]-v)*a:0);return this.eye;
  }
 }
@@ -95,7 +114,7 @@ export class NeutralCapture{
   if(!fit||now-stamp>300){this.samples=[];this.started=null;return false;}
   if(stamp===this.lastStamp)return false;this.lastStamp=stamp;
   const recent=this.samples.slice(-8),mean=recent.length?[0,1,2].map(i=>median(recent.map(s=>s.position[i]))):fit.position;
-  if(recent.length&& (Math.hypot(...fit.position.map((v,i)=>v-mean[i]))>.015||Math.abs(fit.yaw-median(recent.map(s=>s.yaw)))>.1||Math.abs(fit.pitch-median(recent.map(s=>s.pitch)))>.1)){
+  if(recent.length&& (Math.hypot(...fit.position.map((v,i)=>v-mean[i]))>.015||angleDistance(fit,recent[0])>.1||Math.abs(fit.yaw-median(recent.map(s=>s.yaw)))>.1||Math.abs(fit.pitch-median(recent.map(s=>s.pitch)))>.1)){
    this.samples=[];this.started=null;
   }
   this.started??=now;this.samples.push(fit);

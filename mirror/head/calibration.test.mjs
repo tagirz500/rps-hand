@@ -19,3 +19,8 @@ setup.next();assert.equal(setup.stage,'done');assert.equal(control('lateral-sens
 assert.equal(control('head-sensitivity').value,'1.5');assert.equal(control('vertical-sensitivity').value,'2');
 setup.close();assert.equal(control('calibration').open,false);
 console.log('PASS: seated startup, skip/retry, stable center, range tuning, separate head/up-down controls and closing');
+setup.open();control('setup-mode').value='reclined';setup.begin();
+assert.equal(control('body-mode').value,'off');assert.equal(control('play-posture').value,'reclined');
+assert.equal(setup.stage,'center');
+setup.close();control('body-mode').value='off';control('play-posture').value='seated';setup.open();setup.begin();
+assert.equal(control('body-mode').value,'off','Calibration preserves head-only mode');

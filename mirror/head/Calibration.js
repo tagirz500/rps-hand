@@ -1,10 +1,10 @@
-import {NeutralCapture} from './spatial.mjs?v=seat2';
+import {NeutralCapture} from './spatial.mjs?v=recline5';
 const $=id=>document.getElementById(id);
 export class Calibration{
  constructor(head=null,body=null){
   this.head=head;this.body=body;this.dialog=$('calibration');this.stage='setup';
   $('setup-start').onclick=()=>this.head?this.begin():this.request(true);
-  $('setup-skip').onclick=()=>{if(!this.head)this.request(false);this.close();};
+  $('setup-skip').onclick=()=>{if(this.stage==='setup')this.applyPosture();if(!this.head)this.request(false);this.close();};
   $('setup-retry').onclick=()=>this.begin();
   $('setup-next').onclick=()=>this.next();
   $('setup-finish').onclick=()=>this.close();
@@ -22,18 +22,25 @@ export class Calibration{
   finally{this.requesting=false;$('setup-start').disabled=false;}
  }
  open(){
-  this.stage='setup';$('setup-mode').value=$('body-mode').value==='standing'?'standing':'seated';
+  this.stage='setup';$('setup-mode').value=$('play-posture')?.value||($('body-mode').value==='standing'?'standing':'seated');
   this.wasCameraVisible=document.body.classList.contains('show-camera');
   this.wasPaused=this.head?.mode==='off';
   if(this.wasPaused){$('head-mode').value='first';$('head-mode').dispatchEvent(new Event('change'));}
   this.render();this.dialog.showModal();
+ }
+ applyPosture(){
+  const posture=$('setup-mode').value;
+  if($('play-posture')){$('play-posture').value=posture;$('play-posture').dispatchEvent(new Event('change'));}
+  if(posture==='reclined')$('body-mode').value='off';
+  else if($('body-mode').value!=='off')$('body-mode').value=posture;
+  $('body-mode').dispatchEvent(new Event('change'));
  }
  begin(){
   if(!this.head)return;
   const distance=$('setup-distance');if(!distance.reportValidity()||!$('setup-fov').reportValidity()||!$('setup-fov').value)return;
   this.distance=distance.value?Number(distance.value)/100:null;
   this.head.hfov=Number($('setup-fov').value)*Math.PI/180;
-  $('body-mode').value=$('setup-mode').value;$('body-mode').dispatchEvent(new Event('change'));
+  this.applyPosture();
   this.capture=new NeutralCapture();this.stage='center';this.lastSample=-1;this.ranges=[0,0,0];this.rangeSamples=[[],[],[]];this.render();
  }
  next(){
@@ -58,7 +65,7 @@ export class Calibration{
   $('setup-start').hidden=this.stage!=='setup';$('setup-next').hidden=!['side','depth'].includes(this.stage);
   $('setup-retry').hidden=!['side','depth','done'].includes(this.stage);$('setup-finish').hidden=this.stage!=='done';
   $('setup-skip').textContent=this.stage==='setup'?'Skip setup':'Close setup';
-  if(this.stage==='setup'){$('setup-intro').hidden=false;$('setup-title').textContent='Set up your seated view';return;}
+  if(this.stage==='setup'){$('setup-intro').hidden=false;$('setup-title').textContent='Set up your playing position';return;}
   if(this.stage==='done'){
    $('setup-title').textContent='Ready to play';$('setup-complete').hidden=false;
    $('setup-result').textContent=`Your center is saved. Left/right ${$('lateral-sensitivity').value}× · forward/back ${$('depth-sensitivity').value}×. Head turn and up/down remain separately adjustable.`;
@@ -66,7 +73,7 @@ export class Calibration{
   }
   $('setup-live').hidden=false;
   $('setup-title').textContent=this.stage==='center'?'Find your comfortable center':this.stage==='side'?'Lean gently left and right':'Lean gently forward and back';
-  $('setup-instruction').textContent=this.stage==='center'?'Keep the phone still. Face forward and relax in your usual playing position for a moment.':this.stage==='side'?'Keep looking toward the screen and lean each way as far as feels comfortable. Then continue.':'Move your head nearer and farther from the screen without turning. Then continue.';
+  $('setup-instruction').textContent=this.stage==='center'?'Keep the phone fixed facing you. Rest comfortably, seated or lying down, and look toward the screen. Only your face is needed.':this.stage==='side'?'Move gently left and right as far as comfortable. You can skip this if resting against a pillow.':'Move your head nearer and farther from the screen if comfortable, or continue to keep your sensitivity.';
   $('setup-next').textContent=this.stage==='depth'?'Use this range':'Continue';
  }
  update(now){

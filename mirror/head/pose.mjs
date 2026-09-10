@@ -1,3 +1,4 @@
+import {relativeAngles} from './orientation.mjs';
 const clamp = (v, max) => Math.max(-max, Math.min(max, v));
 
 // Face mesh coordinates: x right, y down (height units), z away (width units).
@@ -72,30 +73,33 @@ export function gentleHeadTranslation(offset, depth, lateralGain = 2, depthGain 
 }
 
 export class ViewPose {
-  constructor() { this.mode = 'head'; this.sensitivity=5; this.physicalYaw=0; this.physicalPitch=0; this.neutral = null; this.latest = null; this.seen = -Infinity; this.yaw = 0; this.pitch = 0; }
+  constructor() { this.mode = 'head'; this.sensitivity=5; this.physicalYaw=0; this.physicalPitch=0;this.physicalRoll=0;this.recoveryUntil=0; this.neutral = null; this.latest = null; this.seen = -Infinity; this.yaw = 0; this.pitch = 0; }
   recenter() { this.neutral = null; this.latest = null; }
   receive(pose, now) {
     if (!pose) return;
+    if(Number.isFinite(this.seen)&&now-this.seen>650)this.recoveryUntil=now+350;
     // Reacquisition uses a fresh neutral rather than jumping to an old offset.
     if (now - this.seen > 1500 && !this.preserveNeutral) this.neutral = null;
     this.latest = pose; this.seen = now;
     this.neutral ??= { ...pose };
   }
   update(now, dt) {
-    let yaw = 0, pitch = 0, physicalYaw=0, physicalPitch=0;
-    if (this.mode !== 'off' && this.latest && this.neutral && now - this.seen < 650) {
+    let yaw = 0, pitch = 0, physicalYaw=0, physicalPitch=0,physicalRoll=0;
+    if (this.mode !== 'off' && this.latest && this.neutral && (now - this.seen < 650||this.preserveNeutral)) {
       // n points INTO the head (+z), opposite the viewing direction. With the
       // image mirrored, a positive plane yaw looks screen-right (negative camera yaw).
       physicalYaw=-(this.latest.yaw-this.neutral.yaw);
       physicalPitch=this.latest.pitch-this.neutral.pitch;
+      if(this.latest.fit?.parameters&&this.neutral.fit?.parameters){const relative=relativeAngles(this.latest.fit.parameters,this.neutral.fit.parameters);physicalYaw=relative.yaw;physicalPitch=relative.pitch;physicalRoll=clamp(relative.roll,.75);}
       const deadzone=v=>Math.sign(v)*Math.max(0,Math.abs(v)-.025);
       yaw=this.mode==='first'?deadzone(physicalYaw)*this.sensitivity:physicalYaw*.65;
       pitch=this.mode==='first'?deadzone(physicalPitch)*this.sensitivity*.6:physicalPitch*.65;
     }
     const fast=Math.max(Math.abs(physicalYaw-this.physicalYaw),Math.abs(physicalPitch-this.physicalPitch))>.06;
-    const a = 1 - Math.exp(-Math.min(dt, .1) / (fast?.012:.03));
+    const a = 1 - Math.exp(-Math.min(dt, .1) / (now<this.recoveryUntil?.12:fast?.012:.03));
     this.physicalYaw+=(physicalYaw-this.physicalYaw)*a;
     this.physicalPitch+=(physicalPitch-this.physicalPitch)*a;
+    this.physicalRoll+=(physicalRoll-this.physicalRoll)*a;
     this.yaw += (clamp(yaw, this.mode==='first'?Math.PI:.24) - this.yaw) * a;
     this.pitch += (clamp(pitch, this.mode==='first'?1.3:.18) - this.pitch) * a;
     if (this.mode === 'off') this.yaw = this.pitch = 0;

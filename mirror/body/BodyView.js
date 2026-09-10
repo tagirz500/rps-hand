@@ -5,7 +5,7 @@ export class BodyView {
     this.video=video;this.head=head;this.control=mode;this.status=status;
     this.pose=new BodyPose(mode.value);this.enabled=mode.value!=='off';
     this.lastCapture=-Infinity;this.lastVideo=-1;this.busy=false;this.ready=false;
-    this.frames=0;this.fps=0;this.latency=0;this.windowStart=performance.now();
+    this.frames=0;this.fps=0;this.latency=0;this.misses=0;this.windowStart=performance.now();
     this.generation=0;
     this.lastFaceCount=0;
     mode.addEventListener('change',()=>{
@@ -28,13 +28,14 @@ export class BodyView {
           this.busy=false;const now=performance.now();this.latency=now-data.ts;
           this.frames++;if(now-this.windowStart>=1000){this.fps=Math.round(this.frames*1000/(now-this.windowStart));this.frames=0;this.windowStart=now;}
           this.pose.receive(data.pose,now);
+          this.misses=data.pose?0:this.misses+1;
         }
       };
       this.timer=setTimeout(fail,60000);
     }catch{this.failed=true;this.stop();}
   }
   wantsFrame(now){
-    const interval=Math.max(this.latency,this.head.performance.latency)>65?125:66;
+    const interval=this.misses>=3?500:Math.max(this.latency,this.head.performance.latency)>65?125:66;
     return this.enabled&&this.head.mode!=='off'&&!document.hidden&&this.ready&&!this.busy&&!this.failed&&
       this.head.completedFrames-this.lastFaceCount>=2&&now-this.lastCapture>=interval&&
       this.video.readyState>=2&&this.video.currentTime!==this.lastVideo;
@@ -57,9 +58,9 @@ export class BodyView {
     const active=this.enabled&&this.head.mode!=='off'&&!document.hidden;
     if(active&&!this.worker&&!this.failed&&this.head.ready)this.start();
     if(active&&!this.failed)this.capture(now);
-    this.joints=this.pose.update(now,dt,active&&now-this.head.pose.seen<650,this.head.camera?.position?.toArray?.()??[0,0,0],this.control.value==='seated');
+    this.joints=this.pose.update(now,dt,active&&now-this.head.pose.seen<650,this.head.camera?.position?.toArray?.()??[0,0,0],false);
     const mode=this.control.value;
-    this.status.textContent=!this.enabled?'Body off · head tracking only':!active?'Body paused':this.failed?'Body unavailable · head tracking continues':!this.ready?'Loading body tracking…':
+    this.status.textContent=!this.enabled?'Head only · body pose inferred':!active?'Body paused':this.failed?'Body unavailable · head tracking continues':!this.ready?'Loading body tracking…':
       now-this.pose.seen>500?(this.joints?'Body follows head · arm pose held until shoulders return':'Show your face and both shoulders · head tracking continues'):
       mode==='standing'&&!this.pose.hipsTracked?'Show your hips for standing tracking · head tracking continues':
       !this.pose.neutral?`Hold a relaxed ${mode} pose · calibrating ${Math.min(100,Math.round(this.pose.samples.length/12*100))}%`:

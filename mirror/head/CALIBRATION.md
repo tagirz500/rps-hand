@@ -1,4 +1,12 @@
-# Seated-first calibration and perspective head position
+# Seated/reclined calibration and perspective head position
+
+Head-only is now the default. Playing posture supports seated, reclined and
+standing. Reclined setup disables body assistance and calibrates only the face.
+Relative rotation uses the fitted rotation matrices rather than Euler-angle
+subtraction, so sideways neutral tilt is removed without confusing yaw and pitch.
+The model follows relative head roll. View roll is an optional checkbox, off by
+default to keep the screen horizon level; when enabled it uses half the physical
+roll. Translation remains in screen axes and is never rotated by look angles.
 
 The startup dialog is optional. It defaults to seated play, captures at least
 16 distinct good face fits spanning 2.2 seconds, then offers lateral and depth
@@ -35,8 +43,11 @@ jitter. These constants are not sensor-to-screen latency measurements.
 
 The active HeadView uses SpatialPose. Older WindowPose and firstPersonOrigin
 helpers remain for historical callers/tests but no longer drive the active view.
-Saved neutral persists through tracking loss. After 650ms the view eases toward
-neutral; when the face returns it resumes relative to the saved center. Moving
+Saved neutral and the last accepted view persist through tracking loss. Position
+and angles hold instead of returning home. Reacquisition uses a 120ms filter for
+350ms. Position or rotation jumps require corroboration by a subsequent frame;
+low-inlier perspective fits are rejected. Ordinary motion retains the fast filter.
+When the face returns it resumes relative to the saved center. Moving
 the phone or changing seats requires Recenter or Guided setup.
 
 ## Seated body
@@ -46,9 +57,11 @@ calibrated support. Larger head movements carry the pelvis and whole body.
 The neck is capped at calibrated length plus 15 percent (at most 13.8cm), with
 excess displacement translated into the shoulders and arms together. Measured
 hip visibility does not switch the seated pelvis between two tracking sources.
-Body proportions and the support reference survive occlusion. Seated mode can
-hold the last arm pose and keep following a visible head; it labels this fallback
-and clears stale body signals. Explicit body calibration
+Body proportions and the support reference survive occlusion. The active BodyView
+now releases body output after 500ms without valid shoulders. RiggedAvatar eases
+into an inferred body with relaxed arms, rather than indefinitely holding a stale
+arm pose. After three failed body detections it checks at most twice per second
+until a valid body returns, preserving face-tracking time. Explicit body calibration
 or Recenter resets them. Standing mode continues to require visible hips.
 
 The guided lean stages recommend a gain mapping the 90th-percentile comfortable
@@ -59,10 +72,11 @@ Head turn and vertical gain are never changed by this range tuning.
 ## Verification and limits
 
 Run `node mirror/head/spatial.test.mjs`, `node mirror/head/calibration.test.mjs`,
-the existing head pose tests and both body tests. Synthetic perspective tests
+`node mirror/head/reclined.test.mjs`, the existing head pose tests and both body tests. Synthetic perspective tests
 check pure rotation and several translations/depths, scale, and neutral capture.
 `mirror/head/verify.html` runs the actual face model and outputs the fitted
-position and reprojection error for the included photo. Low reprojection error
+position and reprojection error for the included photo. Add `?rotate=90` to test
+the detector with a sideways reference image. Low reprojection error
 is not proof of correct physical depth or a perfect match to every face.
 
 Runtime head estimation remains monocular and approximate. Individual geometry,

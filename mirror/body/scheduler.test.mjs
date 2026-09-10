@@ -26,4 +26,7 @@ assert.equal(body.wantsFrame(180),false,'Slow devices reduce body rate');
 assert.equal(body.wantsFrame(230),true);
 document.hidden=true;assert.equal(body.wantsFrame(230),false);
 body.stop();head.worker.terminate();clearTimeout(head.timer);
+document.hidden=false;body.enabled=true;body.ready=true;body.misses=3;head.performance.latency=0;
+assert.equal(body.wantsFrame(300),false,'Hidden body backs off to protect face processing');
+assert.equal(body.wantsFrame(650),true,'Hidden body is still checked for recovery');
 console.log('PASS: two-face/one-body scheduling, no concurrent inference, no CPU starvation, pause/off/background and adaptive rate');

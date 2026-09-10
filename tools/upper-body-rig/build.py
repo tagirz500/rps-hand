@@ -77,14 +77,28 @@ for label,s in [('Left',-1),('Right',1)]:
  bones[label+'Clavicle']=((0,-.21,.07),(s*.21,-.24,.075),'Chest')
  bones[label+'UpperArm']=((s*.21,-.24,.075),(s*.39,-.445,.07),label+'Clavicle')
  bones[label+'Forearm']=((s*.39,-.445,.07),(s*.535,-.64,.045),label+'UpperArm')
+ for segment in ['UpperArm','Forearm']:
+  h,t,_=bones[label+segment];bones[label+segment+'Twist']=(h,t,label+segment)
 armdata=bpy.data.armatures.new('UpperBodySkeleton');arm=bpy.data.objects.new('UpperBodyRig',armdata);bpy.context.collection.objects.link(arm)
 bpy.context.view_layer.objects.active=arm;arm.select_set(True);mesh.select_set(False);bpy.ops.object.mode_set(mode='EDIT')
 for name,(head,tail,parent) in bones.items():
  bone=armdata.edit_bones.new(name);bone.head=v(head);bone.tail=v(tail)
+ if name.endswith('Twist'):bone.use_deform=False
  if parent:bone.parent=armdata.edit_bones[parent]
 bpy.ops.object.mode_set(mode='OBJECT')
 bpy.ops.object.select_all(action='DESELECT');mesh.select_set(True);arm.select_set(True);bpy.context.view_layer.objects.active=arm
 bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+# Twist helpers share existing arm weights; they do not attract torso weights.
+for label in ['Left','Right']:
+ for segment in ['UpperArm','Forearm']:
+  name=label+segment;h,t,_=bones[name];h,t=v(h),v(t);axis=t-h
+  group=mesh.vertex_groups.get(name);twist=mesh.vertex_groups.new(name=name+'Twist')
+  armdata.bones[name+'Twist'].use_deform=True
+  for vert in mesh.data.vertices:
+   old=next((g.weight for g in vert.groups if g.group==group.index),0)
+   fraction=max(0,min(.8,(vert.co-h).dot(axis)/axis.length_squared*.8))
+   if old>0 and fraction>0:
+    group.add([vert.index],old*(1-fraction),'REPLACE');twist.add([vert.index],old*fraction,'REPLACE')
 # Stabilize face topology: rigid skull with a short blended neck transition.
 head_group=mesh.vertex_groups.get('Head') or mesh.vertex_groups.new(name='Head')
 neck_group=mesh.vertex_groups.get('Neck') or mesh.vertex_groups.new(name='Neck')
@@ -114,6 +128,17 @@ for edge in mesh.data.edges:
 components=len({find(i) for i in range(len(parent))})
 if components!=1:raise RuntimeError('Mesh has disconnected components: '+str(components))
 report={'vertices':len(mesh.data.vertices),'faces':len(mesh.data.polygons),'components':components,'bones':len(bones),'unweightedVertices':len(bad),'bonesGameSpace':bones}
+# Local volume correctives offset skin collapse during deep flexion/arm raising.
+mesh.shape_key_add(name='Basis')
+for label,s in [('Left',-1),('Right',1)]:
+ for suffix,center,radius,amount in [('ElbowFlex',(s*.39,-.445,.07),.085,.009),('ShoulderRaise',(s*.21,-.24,.075),.11,.007)]:
+  key=mesh.shape_key_add(name=label+suffix);center=v(center)
+  for i,vert in enumerate(mesh.data.vertices):
+   radial=vert.co-center;distance=radial.length
+   if .005<distance<radius and s*vert.co.x>.13:
+    strength=(1-distance/radius)**2
+    key.data[i].co+=radial.normalized()*amount*strength
+report['correctives']=['LeftElbowFlex','RightElbowFlex','LeftShoulderRaise','RightShoulderRaise']
 (assets/'rig-report.json').write_text(json.dumps(report,indent=2))
 bpy.ops.wm.save_as_mainfile(filepath=str(assets/'upper-body.blend'))
 bpy.ops.object.select_all(action='DESELECT');mesh.select_set(True);arm.select_set(True)

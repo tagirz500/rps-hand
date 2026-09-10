@@ -2,7 +2,7 @@
   "vertices": 37502,
   "faces": 66124,
   "components": 1,
-  "bones": 11,
+  "bones": 15,
   "unweightedVertices": 0,
   "bonesGameSpace": {
     "Pelvis": [
@@ -109,6 +109,32 @@
       ],
       "LeftUpperArm"
     ],
+    "LeftUpperArmTwist": [
+      [
+        -0.21,
+        -0.24,
+        0.075
+      ],
+      [
+        -0.39,
+        -0.445,
+        0.07
+      ],
+      "LeftUpperArm"
+    ],
+    "LeftForearmTwist": [
+      [
+        -0.39,
+        -0.445,
+        0.07
+      ],
+      [
+        -0.535,
+        -0.64,
+        0.045
+      ],
+      "LeftForearm"
+    ],
     "RightClavicle": [
       [
         0,
@@ -147,6 +173,38 @@
         0.045
       ],
       "RightUpperArm"
+    ],
+    "RightUpperArmTwist": [
+      [
+        0.21,
+        -0.24,
+        0.075
+      ],
+      [
+        0.39,
+        -0.445,
+        0.07
+      ],
+      "RightUpperArm"
+    ],
+    "RightForearmTwist": [
+      [
+        0.39,
+        -0.445,
+        0.07
+      ],
+      [
+        0.535,
+        -0.64,
+        0.045
+      ],
+      "RightForearm"
     ]
-  }
+  },
+  "correctives": [
+    "LeftElbowFlex",
+    "RightElbowFlex",
+    "LeftShoulderRaise",
+    "RightShoulderRaise"
+  ]
 }

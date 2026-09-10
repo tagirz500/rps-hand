@@ -6,9 +6,11 @@ rigid cylinders or scaling joint-to-joint links. The material is ivory matte.
 
 ## Skeleton and retargeting
 
-11 bones: Pelvis → Spine → Chest → Neck → Head; Chest also parents each
+15 bones: Pelvis → Spine → Chest → Neck → Head; Chest also parents each
 Clavicle → UpperArm → Forearm chain. Left is game -X, right is game +X;
 up is +Y and the face looks toward -Z. Rest eyes are at the origin, units metres.
+Each arm also has UpperArmTwist and ForearmTwist helpers, weighted progressively
+along the limb. Four corrective morphs support elbow flexion and shoulder raising.
 
 `RiggedAvatar.js` stores bind quaternions and positions, then converts desired
 world rotations back into parent-local bone rotations. Shoulder/hip landmarks
@@ -24,8 +26,14 @@ clavicles have a 14-degree swing bound.
 Arms use analytic two-bone IK: wrist is the target, elbow is the bend-plane
 guide. Unreachable wrists are clamped to the arm's fixed reach. This preserves
 anatomical proportions instead of forcing mesh joints onto noisy or differently
-proportioned detector landmarks. Missing arms use the rest pose. Existing body
-tracking smoothing, calibration and seated occlusion handling remain upstream.
+proportioned detector landmarks. Missing arms ease into a relaxed hanging pose.
+Acquisition uses a 55ms rotational filter; loss uses 300ms. Head/neck keep a
+12ms filter. The runtime re-aligns the eyes after filtering to prevent separation.
+Body tracking is optional and disabled by default. Head-only mode still renders
+an inferred upright body, regardless of the player's physical reclined posture.
+Twist is inferred from the elbow bend plane and limited to 0.8 radians; it is not
+a measured wrist/palm orientation. Elbow and shoulder corrective morph values
+follow flexion/raising with an 80ms filter. No hands were added.
 
 Skull vertices are rigidly weighted; the neck transition blends into the neck
 bone. The body uses normalized bone-heat weights with at most four influences.
@@ -41,7 +49,8 @@ rest render, and `tools/upper-body-rig/build.py`. Run the builder in Blender
 background mode to regenerate the GLB from `mirror/avatar/head.glb`.
 
 Open `avatar/verify.html` for synthetic neutral, bent-elbow, lean/turn and
-unreachable-target poses. It checks bone lengths, eye alignment and finite skinned
+unreachable-target poses, plus head-only, sideways tilt and body loss/recovery.
+It checks bone lengths, eye alignment, recovery step size and finite skinned
 vertices. `body/verify.html?crop` runs the actual detector on a cropped reference
 photo and feeds this same rig. These are browser checks, not a phone webcam
 latency measurement. The model is an upper-body mannequin, not a facial-expression

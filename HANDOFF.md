@@ -5,13 +5,32 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?rig=4
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?recline=5
+
+## Latest: optional body assistance and reclined play
+
+Head-only is the default and keeps an inferred upright avatar visible. Guided
+setup supports seated/reclined/standing; reclined selects head-only. Relative
+rotation matrices remove tilted neutral orientation. Head roll drives the rig;
+optional view roll is half strength and defaults off. Independent XYZ movement
+gains remain. No shoulders are required for camera control.
+
+Position/rotation outliers need corroboration; weak perspective fits are rejected.
+The view holds through face loss and blends recovery instead of returning home.
+Body assistance releases stale joints, eases arms to a relaxed pose, and reduces
+body inference after repeated misses. The mesh now has 15 bones including four
+twist helpers, plus four elbow/shoulder volume correctives. See
+`mirror/head/CALIBRATION.md` and `mirror/avatar/RIG.md` for implementation details.
+
+Validation: six Node test files pass; browser checks pass for seven rig scenarios,
+real cropped-body inference and a rotated real face photo. These do not establish
+phone latency or robustness to every pillow/lighting/occlusion condition.
 
 ## Connected upper-body rig (latest)
 
 The active app now uses `mirror/avatar/RiggedAvatar.js` and `upper-body.glb`:
-one connected skinned mesh, 11 hierarchical bones (pelvis, spine, chest, neck,
-head, both clavicles, upper arms and forearms). The separate TrackedBody and
+one connected skinned mesh, 15 hierarchical bones (pelvis, spine, chest, neck,
+head, both clavicles, upper arms, forearms and four twist helpers). The separate TrackedBody and
 TrackedHead renderers below are historical implementations, no longer used by
 the active app. The head is the supplied sculpture, fused into the body surface.
 

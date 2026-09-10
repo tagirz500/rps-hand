@@ -18,7 +18,9 @@ dialog{color:#eef3f7;background:#172633;border:1px solid #688396;border-radius:1
 <h1>HEAD &amp; BODY VR VIEW</h1>
 <select id="head-mode" aria-label="Head tracking"><option value="first">Head tracking on</option><option value="off">Pause view</option></select>
 <select id="view-mode" aria-label="Viewpoint"><option value="third">Third person</option><option value="first">First person + mirror</option></select>
-<select id="body-mode" aria-label="Body tracking mode"><option value="seated">Body: seated</option><option value="standing">Body: standing</option><option value="off">Body: off</option></select>
+<select id="body-mode" aria-label="Body tracking mode"><option value="off">Head only</option><option value="seated">Body assist: seated</option><option value="standing">Body assist: standing</option></select>
+<select id="play-posture" aria-label="Playing posture"><option value="seated">Playing seated</option><option value="reclined">Playing reclined</option><option value="standing">Playing standing</option></select>
+<label><input id="camera-roll" type="checkbox" style="width:auto">View follows head tilt</label>
 <button id="recenter">Recenter</button><button id="setup-open">Guided setup</button><button id="calibrate-body">Calibrate body</button><button id="show-camera">Show camera</button>
 <details id="movement-controls"><summary>Movement sensitivity</summary><div id="movement-sliders">
 <label>Head turn <input id="head-sensitivity" aria-label="Head turn sensitivity" type="range" min="0.5" max="4" step="0.25" value="1.5"><output id="gain">1.5×</output></label>
@@ -26,14 +28,15 @@ dialog{color:#eef3f7;background:#172633;border:1px solid #688396;border-radius:1
 <label>Forward / back <input id="depth-sensitivity" aria-label="Forward back movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="depth-gain">2×</output></label>
 <label>Up / down <input id="vertical-sensitivity" aria-label="Up down movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="vertical-gain">2×</output></label>
 </div></details>
-<div id="head-status" role="status">Look straight ahead to set the center</div><div id="body-status" role="status">Keep your face, shoulders and arms in view</div>
+<div id="head-status" role="status">Look toward the screen in your comfortable playing position</div><div id="body-status" role="status">Head only · shoulders and arms are optional</div>
 </div>
 <dialog id="calibration" aria-labelledby="setup-title">
 <h2 id="setup-title">Set up your seated view</h2>
 <div id="setup-intro">
 <p id="setup-loading" role="status">Starting camera… Allow camera access to begin calibration.</p>
-<p>Get comfortable, keep your phone fixed, and leave your face and shoulders in view. Your legs and hips can stay behind the desk when seated.</p>
-<label>How are you playing?<select id="setup-mode"><option value="seated">Seated (recommended)</option><option value="standing">Standing</option></select></label>
+<p>Get comfortable and keep your phone fixed with the camera facing you. Keep your face visible; your shoulders, arms and hips can stay out of view.</p>
+<label>How are you playing?<select id="setup-mode"><option value="seated">Seated</option><option value="reclined">Reclined / lying down</option><option value="standing">Standing</option></select></label>
+<p>Only your face needs to be visible. Rest in your usual playing position, including against a pillow. Your starting head tilt becomes neutral. Body assistance is optional.</p>
 <p>First we save a steady center. Then you can set how much a comfortable lean moves your view.</p>
 <details><summary>Optional distance calibration</summary>
 <label>Measured distance from camera to your eyes (cm)<br><input id="setup-distance" type="number" min="25" max="150" step="1" placeholder="Optional" inputmode="numeric"></label>
@@ -56,10 +59,10 @@ import * as THREE from 'three';
 
 import {Reflector} from 'three/addons/objects/Reflector.js';
 
-import {HeadView} from './head/HeadView.js?v=seat2';
-import {Calibration} from './head/Calibration.js?v=seat2';
-import {BodyView} from './body/BodyView.js?v=carry3';
-import {RiggedAvatar} from './avatar/RiggedAvatar.js?v=rig4';
+import {HeadView} from './head/HeadView.js?v=recline5';
+import {Calibration} from './head/Calibration.js?v=recline5';
+import {BodyView} from './body/BodyView.js?v=recline5';
+import {RiggedAvatar} from './avatar/RiggedAvatar.js?v=recline5';
 
 
 
@@ -114,7 +117,8 @@ addEventListener('resize',resize);resize();
 for(const [input,output] of [['head-sensitivity','gain'],['lateral-sensitivity','lateral-gain'],['depth-sensitivity','depth-gain'],['vertical-sensitivity','vertical-gain']]) $(input).oninput=()=>$(output).textContent=$(input).value+'\u00d7';
 $('show-camera').onclick=()=>{$('show-camera').textContent=document.body.classList.toggle('show-camera')?'Hide camera':'Show camera';};
 
-let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);setup?.update(now);avatar?.update(camera,head,body?.joints,$('body-mode').value!=='off');const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
+$('play-posture').onchange=()=>{if($('play-posture').value==='reclined'){$('body-mode').value='off';$('body-mode').dispatchEvent(new Event('change'));}else if($('body-mode').value!=='off'){$('body-mode').value=$('play-posture').value;$('body-mode').dispatchEvent(new Event('change'));}head?.pose.recenter();head?.window.recenter();};
+let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);if(head)camera.rotation.z=$('camera-roll').checked?head.pose.physicalRoll*.5:0;body?.update(now,dt);setup?.update(now);avatar?.update(camera,head,body?.joints,true,dt);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 async function start(){
 

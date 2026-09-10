@@ -3,11 +3,14 @@
 <h1>Face worker verification</h1><p id="status">Loading real face model…</p><img id="photo" src="../woman_hands.jpg">
 <script type="module">
 const status=document.querySelector('#status'), photo=document.querySelector('#photo');
-const worker=new Worker('./worker.mjs?v=seat2',{type:'module'});
+const worker=new Worker('./worker.mjs?v=recline5',{type:'module'});
 const timeout=setTimeout(()=>{status.textContent='FAIL: timeout';worker.terminate()},60000);
 worker.onerror=e=>{status.textContent='FAIL: '+e.message;clearTimeout(timeout)};
 worker.onmessage=async({data})=>{
-  if(data.type==='ready') {await photo.decode();const frame=await createImageBitmap(photo);worker.postMessage({frame,ts:performance.now()},[frame]);}
+  if(data.type==='ready') {await photo.decode();const angle=Number(new URLSearchParams(location.search).get('rotate')||0)*Math.PI/180;
+    const canvas=document.createElement('canvas'),side=Math.abs(Math.sin(angle))>.5;canvas.width=side?photo.naturalHeight:photo.naturalWidth;canvas.height=side?photo.naturalWidth:photo.naturalHeight;
+    const ctx=canvas.getContext('2d');ctx.translate(canvas.width/2,canvas.height/2);ctx.rotate(angle);ctx.drawImage(photo,-photo.naturalWidth/2,-photo.naturalHeight/2);canvas.style.maxWidth='400px';photo.replaceWith(canvas);
+    const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:performance.now()},[frame]);}
   else {clearTimeout(timeout);status.textContent=data.type==='pose'&&data.pose ? 'PASS: real face detected · '+JSON.stringify(data.pose) : 'FAIL: '+JSON.stringify(data);worker.terminate();}
 };
 </script>

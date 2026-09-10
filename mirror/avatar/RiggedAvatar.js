@@ -7,8 +7,8 @@ const identity=new T.Quaternion();
 export class RiggedAvatar {
   constructor(scene,playerCamera,status){
     this.object=new T.Group();scene.add(this.object);this.bones={};this.bind={};this.meshes=[];
-    this.playerCamera=playerCamera;this.bodyVisible=true;
-    this.ready=new GLTFLoader().loadAsync(new URL('./upper-body.glb',import.meta.url).href).then(gltf=>{
+    this.playerCamera=playerCamera;this.bodyVisible=true;this.smoothed={};this.correctiveTargets={};
+    this.ready=new GLTFLoader().loadAsync(new URL('./upper-body.glb?v=recline5',import.meta.url).href).then(gltf=>{
       this.object.add(gltf.scene);this.object.updateMatrixWorld(true);
       gltf.scene.traverse(o=>{
         if(o.isBone){this.bones[o.name]=o;this.bind[o.name]={q:o.getWorldQuaternion(new T.Quaternion()),p:o.getWorldPosition(new T.Vector3()),local:o.quaternion.clone()};}
@@ -30,7 +30,7 @@ export class RiggedAvatar {
         }
       });
       this.eyeLocal=this.bones.Head.worldToLocal(new T.Vector3());
-      this.loaded=true;if(status)status.textContent='Connected upper-body rig · 11 bones';
+      this.loaded=true;if(status)status.textContent='Connected upper-body rig · '+Object.keys(this.bones).length+' bones';
       return this;
     }).catch(e=>{if(status)status.textContent='Avatar could not load: '+e.message;throw e;});
   }
@@ -57,15 +57,30 @@ export class RiggedAvatar {
     const along=(a.lengthSq()-b.lengthSq()+distance*distance)/(2*distance);
     const bend=start.clone().addScaledVector(direction,along).addScaledVector(guide,Math.sqrt(Math.max(0,a.lengthSq()-along*along)));
     const end=start.clone().addScaledVector(direction,distance);
-    this.rotate(upper,new T.Quaternion().setFromUnitVectors(a.normalize(),bend.clone().sub(start).normalize()));
-    this.rotate(fore,new T.Quaternion().setFromUnitVectors(b.normalize(),end.sub(bend).normalize()));
+    const upperDirection=bend.clone().sub(start).normalize(),foreDirection=end.sub(bend).normalize();
+    const upperDelta=new T.Quaternion().setFromUnitVectors(a.clone().normalize(),upperDirection);
+    const foreDelta=new T.Quaternion().setFromUnitVectors(b.clone().normalize(),foreDirection);
+    this.rotate(upper,upperDelta);this.rotate(fore,foreDelta);
+    const restNormal=new T.Vector3().crossVectors(a,b).normalize();
+    const bendNormal=new T.Vector3().crossVectors(upperDirection,foreDirection),bendStrength=bendNormal.length();bendNormal.normalize();
+    for(const [name,axis,delta] of [[upper,upperDirection,upperDelta],[fore,foreDirection,foreDelta]]){
+      if(!this.bones[name+'Twist'])continue;
+      const reference=restNormal.clone().applyQuaternion(delta);
+      const angle=Math.atan2(axis.dot(new T.Vector3().crossVectors(reference,bendNormal)),reference.dot(bendNormal));
+      // Elbow-plane twist is inferred; no invisible palm orientation is claimed.
+      const twist=T.MathUtils.clamp(angle,-.8,.8)*Math.min(1,bendStrength/.2);
+      this.rotate(name+'Twist',new T.Quaternion().setFromAxisAngle(axis,twist).multiply(delta));
+    }
+    this.correctiveTargets[side+'ElbowFlex']=(1-upperDirection.dot(foreDirection))*.5;
+    this.correctiveTargets[side+'ShoulderRaise']=T.MathUtils.clamp((upperDirection.y+.8)/1.8,0,1);
   }
-  update(camera,head,joints,bodyVisible=true){
+  update(camera,head,joints,bodyVisible=true,dt=1){
     if(!this.loaded)return;this.bodyVisible=bodyVisible;
     this.object.position.set(0,0,0);
     for(const [name,bone] of Object.entries(this.bones))bone.quaternion.copy(this.bind[name].local);
     this.object.updateMatrixWorld(true);
-    const bodyRotation=new T.Quaternion();
+    const tracked=!!joints;
+    const bodyRotation=new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),(head?.pose?.physicalYaw??0)*.2);
     if(joints?.leftShoulder&&joints?.rightShoulder&&joints?.leftHip&&joints?.rightHip){
       const x=V(joints.rightShoulder).sub(V(joints.leftShoulder)).normalize();
       const y=V(joints.leftShoulder).add(V(joints.rightShoulder)).sub(V(joints.leftHip)).sub(V(joints.rightHip)).normalize();
@@ -73,7 +88,7 @@ export class RiggedAvatar {
       if(z.lengthSq()>.5){bodyRotation.setFromRotationMatrix(new T.Matrix4().makeBasis(x,y,z));const angle=identity.angleTo(bodyRotation);if(angle>.7)bodyRotation.slerp(identity,1-.7/angle);}
     }
     this.rotate('Spine',identity.clone().slerp(bodyRotation,.4));this.rotate('Chest',bodyRotation);
-    const headRotation=new T.Quaternion().setFromEuler(new T.Euler(head?.pose?.physicalPitch??0,head?.pose?.physicalYaw??0,0,'YXZ'));
+    const headRotation=new T.Quaternion().setFromEuler(new T.Euler(head?.pose?.physicalPitch??0,head?.pose?.physicalYaw??0,head?.pose?.physicalRoll??0,'YXZ'));
     this.rotate('Neck',bodyRotation.clone().slerp(headRotation,.5));this.rotate('Head',headRotation);
     // Move the entire skeleton so its eyes follow the player. Never stretch a neck.
     const eyes=this.bones.Head.localToWorld(this.eyeLocal.clone());
@@ -88,8 +103,25 @@ export class RiggedAvatar {
         const angle=identity.angleTo(swing);if(angle>.25)swing.slerp(identity,1-.25/angle);
         this.rotate(name,swing.multiply(bodyRotation));
       }
-      this.arm(side,joints,camera,bodyRotation);
+      const key=side.toLowerCase(),sign=side==='Left'?-1:1;
+      const usable=joints?.[key+'Elbow']&&joints?.[key+'Wrist'];
+      this.arm(side,usable?joints:{[key+'Elbow']:[sign*.24,-.50,.075],[key+'Wrist']:[sign*.25,-.71,-.02]},camera,bodyRotation);
+    }
+    // Blend body acquisition/loss while keeping the head responsive and lengths fixed.
+    for(const [name,bone] of Object.entries(this.bones)){
+      const side=name.startsWith('Left')?'left':name.startsWith('Right')?'right':null;
+      const missingArm=side&&name.includes('Arm')&&(!joints?.[side+'Elbow']||!joints?.[side+'Wrist']);
+      const tau=['Head','Neck'].includes(name)?.012:tracked&&!missingArm?.055:.3;
+      const previous=this.smoothed[name];
+      if(previous)bone.quaternion.copy(previous.slerp(bone.quaternion,1-Math.exp(-dt/tau)));
+      this.smoothed[name]=bone.quaternion.clone();
     }
     this.object.updateMatrixWorld(true);
+    this.object.position.add(camera.position.clone().sub(this.bones.Head.localToWorld(this.eyeLocal.clone())));
+    this.object.updateMatrixWorld(true);
+    for(const mesh of this.meshes)for(const [name,index] of Object.entries(mesh.morphTargetDictionary??{})){
+      const target=this.correctiveTargets[name]??0;
+      mesh.morphTargetInfluences[index]+=(target-mesh.morphTargetInfluences[index])*(1-Math.exp(-dt/.08));
+    }
   }
 }

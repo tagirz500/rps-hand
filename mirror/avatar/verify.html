@@ -1,10 +1,11 @@
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connected rig pose tests</title><style>body{margin:0;background:#243946;color:white;font:14px system-ui}canvas{display:block;width:100vw;height:100vh}aside{position:absolute;top:12px;left:12px;background:#172633dd;padding:12px;border-radius:12px;max-width:90vw}select,button{padding:9px}pre{white-space:pre-wrap}</style></head><body><canvas></canvas><aside><b>Connected rig · synthetic pose test</b><p><select aria-label="Test pose"><option>Neutral</option><option>Bent elbows</option><option>Lean and turn</option><option>Unreachable wrists</option></select><button>Show bones</button></p><pre role="status">Loading rig…</pre></aside><script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"}}</script><script type="module">
-import * as T from 'three';import {RiggedAvatar} from './RiggedAvatar.js?v=rig4';
+import * as T from 'three';import {RiggedAvatar} from './RiggedAvatar.js?v=recline5';
 const scene=new T.Scene();scene.background=new T.Color(0x243946);scene.add(new T.HemisphereLight(0xffffff,0x6e8494,2));const sun=new T.DirectionalLight(0xfff0df,2.3);sun.position.set(-1,2,-2);scene.add(sun);
 const renderer=new T.WebGLRenderer({canvas:document.querySelector('canvas'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);renderer.toneMapping=T.ACESFilmicToneMapping;
 const view=new T.PerspectiveCamera(42,innerWidth/innerHeight,.01,10);view.position.set(.8,.05,-1.95);view.lookAt(0,-.32,0);const eye=new T.PerspectiveCamera();const avatar=new RiggedAvatar(scene,eye);await avatar.ready;
 const helper=new T.SkeletonHelper(avatar.object);helper.visible=false;scene.add(helper);document.querySelector('button').onclick=()=>{helper.visible=!helper.visible;};
 const lengths=Object.fromEntries(Object.entries(avatar.bones).map(([name,b])=>[name,b.position.length()]));
+for(const label of ['Head only','Sideways head tilt','Body loss and recovery'])document.querySelector('select').add(new Option(label,label));
 function pose(){
  const name=document.querySelector('select').value;
  const joints={leftShoulder:[-.21,-.24,.075],rightShoulder:[.21,-.24,.075],leftHip:[-.12,-.66,.085],rightHip:[.12,-.66,.085],leftElbow:[-.39,-.445,.07],rightElbow:[.39,-.445,.07],leftWrist:[-.535,-.64,.045],rightWrist:[.535,-.64,.045]};
@@ -12,11 +13,18 @@ function pose(){
  if(name==='Bent elbows'||name==='Lean and turn'){joints.leftElbow=[-.28,-.45,.04];joints.rightElbow=[.28,-.45,.04];joints.leftWrist=[-.23,-.26,-.13];joints.rightWrist=[.23,-.26,-.13];}
  if(name==='Lean and turn'){eye.position.set(.28,.12,-.25);head.pose.physicalYaw=.7;head.pose.physicalPitch=.25;for(const key of ['leftHip','rightHip'])joints[key][0]-=.18;}
  if(name==='Unreachable wrists'){joints.leftWrist=[-2,1,-2];joints.rightWrist=[2,1,-2];}
- avatar.update(eye,head,joints);avatar.object.updateMatrixWorld(true);
+ if(name==='Sideways head tilt'){head.pose.physicalRoll=.55;head.pose.physicalYaw=.25;eye.position.set(.12,.08,-.1);}
+ avatar.update(eye,head,name==='Head only'||name==='Sideways head tilt'?null:joints);avatar.object.updateMatrixWorld(true);
+ let recoveryStep=0;
+ if(name==='Body loss and recovery'){
+   for(let i=0;i<90;i++)avatar.update(eye,head,null,true,1/60);
+   const before=avatar.bones.LeftUpperArm.quaternion.clone();
+   avatar.update(eye,head,joints,true,1/60);recoveryStep=before.angleTo(avatar.bones.LeftUpperArm.quaternion);
+ }
  let boneError=0,badVertices=0;
  for(const [name,b] of Object.entries(avatar.bones))boneError=Math.max(boneError,Math.abs(b.position.length()-lengths[name]));
  for(const mesh of avatar.meshes){mesh.skeleton.update();for(let i=0;i<mesh.geometry.attributes.position.count;i++){const p=new T.Vector3();mesh.getVertexPosition(i,p);if(!Number.isFinite(p.x+p.y+p.z))badVertices++;}}
  const eyeError=avatar.bones.Head.localToWorld(avatar.eyeLocal.clone()).distanceTo(eye.position);
- document.querySelector('pre').textContent=JSON.stringify({pose:name,skinnedMeshes:avatar.meshes.length,bones:Object.keys(avatar.bones).length,boneLengthError:boneError,eyeAlignmentError:eyeError,invalidSkinVertices:badVertices,passed:boneError<1e-7&&eyeError<1e-6&&badVertices===0},null,2);
+ document.querySelector('pre').textContent=JSON.stringify({pose:name,skinnedMeshes:avatar.meshes.length,bones:Object.keys(avatar.bones).length,correctives:avatar.meshes[0].morphTargetDictionary,boneLengthError:boneError,eyeAlignmentError:eyeError,invalidSkinVertices:badVertices,recoveryStepRadians:recoveryStep,passed:boneError<1e-7&&eyeError<1e-6&&badVertices===0&&recoveryStep<.5},null,2);
 }document.querySelector('select').onchange=pose;pose();renderer.setAnimationLoop(()=>renderer.render(scene,view));
 </script></body></html>
