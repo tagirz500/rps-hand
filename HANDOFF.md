@@ -5,7 +5,19 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?carry=3
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?rig=4
+
+## Connected upper-body rig (latest)
+
+The active app now uses `mirror/avatar/RiggedAvatar.js` and `upper-body.glb`:
+one connected skinned mesh, 11 hierarchical bones (pelvis, spine, chest, neck,
+head, both clavicles, upper arms and forearms). The separate TrackedBody and
+TrackedHead renderers below are historical implementations, no longer used by
+the active app. The head is the supplied sculpture, fused into the body surface.
+
+Read `mirror/avatar/RIG.md` for retargeting and verification. Editable source:
+`assets/upper-body-rig/upper-body.blend`; reproducible builder:
+`tools/upper-body-rig/build.py`. No detailed hands or gaze rig were reintroduced.
 
 ## For the next coding session
 

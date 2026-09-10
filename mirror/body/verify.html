@@ -5,8 +5,7 @@
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/"}}</script>
 <script type="module">
 import * as THREE from 'three';
-import {TrackedBody} from './TrackedBody.js?v=body1';
-import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {RiggedAvatar} from '../avatar/RiggedAvatar.js?v=rig4';
 import {BodyPose} from './pose.mjs?v=seat2';
 const status=document.querySelector('#status'),result=document.querySelector('#result'),canvas=document.querySelector('canvas');
 const query=new URLSearchParams(location.search);
@@ -28,8 +27,7 @@ worker.onmessage=async({data})=>{
    const renderer=new THREE.WebGLRenderer({canvas:document.querySelector('#avatar'),antialias:true});renderer.setSize(600,600,false);
    const scene=new THREE.Scene();scene.background=new THREE.Color(0x243946);scene.add(new THREE.HemisphereLight(0xffffff,0x647e92,3));
    const camera=new THREE.PerspectiveCamera(55,1,.03,10);camera.position.set(.15,-.1,-1.8);camera.lookAt(0,-.35,0);
-   const body=new TrackedBody(scene);body.update({position:new THREE.Vector3()},joints);
-   const head=await new GLTFLoader().loadAsync('../avatar/head.glb');scene.add(head.scene);renderer.render(scene,camera);
+   const eye=new THREE.PerspectiveCamera(),body=new RiggedAvatar(scene,eye);await body.ready;body.update(eye,null,joints);renderer.render(scene,camera);
  }
  finish(joints?'PASS: real upper-body model, calibration, filtered joints and 3D avatar':'FAIL: calibration');
 };

@@ -59,11 +59,10 @@ import {Reflector} from 'three/addons/objects/Reflector.js';
 import {HeadView} from './head/HeadView.js?v=seat2';
 import {Calibration} from './head/Calibration.js?v=seat2';
 import {BodyView} from './body/BodyView.js?v=carry3';
-import {TrackedBody} from './body/TrackedBody.js?v=body1';
+import {RiggedAvatar} from './avatar/RiggedAvatar.js?v=rig4';
 
 
 
-import {TrackedHead} from './avatar/TrackedHead.js?v=body1';
 
 const $=id=>document.getElementById(id), Q=new URLSearchParams(location.search);
 
@@ -104,9 +103,9 @@ for(const [x,y,w,h] of [[-.665,-.3,.03,1.66],[.665,-.3,.03,1.66],[0,.515,1.3,.03
 const observer=new THREE.PerspectiveCamera(55,1,.03,15);observer.position.set(1,.35,-1.8);observer.lookAt(0,-.32,0);observer.layers.enable(1);mirror.getReflectionCamera(observer).layers.enable(1);
 
 let avatar=null,head=null,body=null,setup=null;
-const bodyAvatar=new TrackedBody(scene);
+const avatarStatus=document.createElement('div');avatarStatus.id='avatar-status';$('controls').append(avatarStatus);$('head-preview').remove();
 
-try{avatar=new TrackedHead(scene,$('head-canvas'),$('head-label'));}catch{$('head-label').textContent='Head preview unavailable';}
+avatar=new RiggedAvatar(scene,camera,avatarStatus);avatar.ready.catch(()=>{});
 
 function resize(){const w=innerWidth,h=innerHeight;renderer.setSize(w,h,false);camera.aspect=w/h;observer.aspect=w/h;observer.updateProjectionMatrix();camera.fov=2*Math.atan(Math.tan(50*Math.PI/180)/Math.max(1,w/h))*180/Math.PI;camera.updateProjectionMatrix();}
 
@@ -115,7 +114,7 @@ addEventListener('resize',resize);resize();
 for(const [input,output] of [['head-sensitivity','gain'],['lateral-sensitivity','lateral-gain'],['depth-sensitivity','depth-gain'],['vertical-sensitivity','vertical-gain']]) $(input).oninput=()=>$(output).textContent=$(input).value+'\u00d7';
 $('show-camera').onclick=()=>{$('show-camera').textContent=document.body.classList.toggle('show-camera')?'Hide camera':'Show camera';};
 
-let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);setup?.update(now);avatar?.update(camera,head,now);bodyAvatar.update(camera,body?.joints);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
+let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);setup?.update(now);avatar?.update(camera,head,body?.joints,$('body-mode').value!=='off');const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 async function start(){
 
