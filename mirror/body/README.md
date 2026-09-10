@@ -10,10 +10,11 @@ frames. Calibrate body resets only body proportions; Recenter resets both head
 and body. Head rotation and all three positional sensitivity sliders stay
 independent. Body: off terminates its worker and retains head-only operation.
 
-Seated calibration needs eyes and both shoulders. Hidden hips use an explicitly
-labelled estimated lower torso. Standing calibration and tracking require hips.
+Seated calibration needs eyes and both shoulders. Its pelvis is an explicitly
+estimated support anchored in game space, even when hips become visible. Leaning
+moves shoulders relative to this fixed support. Standing calibration and tracking require hips.
 Hidden arm joints are omitted. Losing the torso hides it after 500ms; the head
-continues. Reacquisition after 1.5 seconds recalibrates. The face must remain in
+continues. Proportions and the seated anchor survive reacquisition. The face must remain in
 view to attach the body to the eye position. Keep the camera stationary.
 
 ## Components and coordinates
@@ -28,8 +29,13 @@ view to attach the body to the eye position. Keep the camera stationary.
   Actual rates depend on device and body inference can reduce head frame rate.
 - `TrackedBody.js`: torso and limb segments built from joint positions. Only its
   origin follows camera position; head look gain never rotates the body joints.
-- `pose.signals`: torso yaw/roll and shoulder-to-hip lean X/Z for future gameplay;
+- `pose.signals`: torso yaw/roll and relative shoulder-to-hip lean X/Z for future gameplay;
   `hipsTracked` distinguishes measured hips from seated estimates.
+
+See `../head/CALIBRATION.md` for guided startup, optional measured-distance scale,
+and the active perspective head solver. In seated mode, `hipsTracked` reports
+source visibility only; rendered hips are always anchored estimates. The signals
+are null on loss/disable and must not be treated as measured seated pelvis motion.
 
 MediaPipe world landmarks are hip-relative shape estimates in metres. They do
 not provide absolute room position. Subtract the midpoint of pose eye landmarks

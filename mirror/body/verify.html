@@ -7,11 +7,11 @@
 import * as THREE from 'three';
 import {TrackedBody} from './TrackedBody.js?v=body1';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
-import {BodyPose} from './pose.mjs?v=body1';
+import {BodyPose} from './pose.mjs?v=seat2';
 const status=document.querySelector('#status'),result=document.querySelector('#result'),canvas=document.querySelector('canvas');
 const query=new URLSearchParams(location.search);
 const photo=new Image();photo.src=query.has('occluded')?'../woman_hands.jpg':'./pose-example.jpg';await photo.decode();canvas.width=photo.width;canvas.height=query.has('crop')?Math.round(photo.height*.62):photo.height;canvas.getContext('2d').drawImage(photo,0,0);
-const worker=new Worker('./worker.mjs?v=body1',{type:'module'});const pose=new BodyPose(query.has('standing')?'standing':'seated');let count=0;const timings=[];
+const worker=new Worker('./worker.mjs?v=seat2',{type:'module'});const pose=new BodyPose(query.has('standing')?'standing':'seated');let count=0;const timings=[];
 const timeout=setTimeout(()=>{status.textContent='FAIL: timeout';worker.terminate();},60000);
 const finish=message=>{clearTimeout(timeout);status.textContent=message;worker.terminate();};
 const send=async()=>{const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:performance.now()},[frame]);};

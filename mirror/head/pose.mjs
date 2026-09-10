@@ -26,7 +26,7 @@ export class WindowPose {
   recenter() { this.neutral = null; this.target = [0,0,0]; }
   receive(p, now, aspect, hfov) {
     if (!p || !Number.isFinite(p.span) || p.span < .025) return;
-    if (now - this.seen > 1500) this.neutral = null;
+    if (now - this.seen > 1500 && !this.preserveNeutral) this.neutral = null;
     this.neutral ??= {...p}; this.seen = now;
     const distance = .45, depth = distance * this.neutral.span / p.span;
     const k = 2 * Math.tan(hfov / 2), n = this.neutral;
@@ -77,7 +77,7 @@ export class ViewPose {
   receive(pose, now) {
     if (!pose) return;
     // Reacquisition uses a fresh neutral rather than jumping to an old offset.
-    if (now - this.seen > 1500) this.neutral = null;
+    if (now - this.seen > 1500 && !this.preserveNeutral) this.neutral = null;
     this.latest = pose; this.seen = now;
     this.neutral ??= { ...pose };
   }

@@ -5,7 +5,7 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?body=1
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?seated=2
 
 ## For the next coding session
 
@@ -14,6 +14,9 @@ Read this file, then `mirror/head/README.md`, `HeadView.js`, `pose.mjs`, and
 (rotation) separate from head position (translation). The user has now approved
 upper-body tracking for seated and standing play. Read `mirror/body/README.md`
 for calibration, coordinates, scheduling and limits. Detailed hands remain absent.
+The latest change prioritizes seated play: read `mirror/head/CALIBRATION.md` for
+the optional guided setup, perspective head fit, measured-distance scale and
+fixed seated pelvis. It also describes remaining camera/face calibration limits.
 
 ## Current files
 
@@ -23,6 +26,8 @@ for calibration, coordinates, scheduling and limits. Detailed hands remain absen
 | `mirror/head/worker.mjs` | MediaPipe FaceLandmarker in a module worker; GPU first, CPU fallback; no expression or gaze output |
 | `mirror/head/HeadView.js` | Latest-frame capture, independent rotation/translation, recenter, status, camera transforms |
 | `mirror/head/pose.mjs` | Head-pose estimation, filters, movement mapping and coordinate helpers |
+| `mirror/head/spatial.mjs` | Robust perspective head fit, stable neutral capture and calibrated positional offsets |
+| `mirror/head/Calibration.js` | Optional seated-first startup, distance scale, lean-range tuning and skip/retry |
 | `mirror/head/pose.test.mjs` | Direction, recenter, dropout, limits, independent translation and response tests |
 | `mirror/head/verify.html` | Real face-model inference against an included photo without camera access |
 | `mirror/body/worker.mjs` | Real Pose Landmarker Lite in a module worker, no segmentation |
@@ -53,6 +58,8 @@ or a suitable HTTPS host. Runtime/model downloads require network access.
 
 ```sh
 node mirror/head/pose.test.mjs
+node mirror/head/spatial.test.mjs
+node mirror/head/calibration.test.mjs
 node mirror/body/pose.test.mjs
 node mirror/body/scheduler.test.mjs
 blender -b -t 4 --python tools/head-rig/build.py
@@ -68,19 +75,21 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    When body tracking is enabled, two face results earn one body inference slot.
    Inference never overlaps; slow devices lower body capture from 15fps to 8fps.
    The camera requests 60fps where available. Actual speed depends on the device.
-2. Cheeks 234/454 and forehead/chin 10/152 define a head plane. The cross-product
-   normal yields yaw/pitch relative to Recenter. Fixed outer-eye corners 33/263
-   estimate head centre and scale; this measures facial geometry, not eye gaze.
+2. The facial plane initializes a robust six-parameter perspective fit across
+   23 canonical face points. The solver jointly estimates rotation and eye-origin
+   translation, rejecting poor fits. It does not use gaze or expression coefficients.
 3. Rotation uses a 1.43-degree dead zone, adjustable yaw gain (default 1.5x), and
    pitch gain at 60% of yaw gain. Limits are +/-180 degrees yaw and +/-74.5 pitch.
-4. Position estimates depth from facial span relative to neutral and an assumed
-   90mm outer-eye span. Left/right, forward/back and up/down movement gains are separately adjustable from 0–4x
+4. Position comes from the perspective fit, relative to saved neutral. The
+   canonical template assumes a 90mm outer-eye span; an optional measured starting
+   distance adjusts scale. Camera FOV remains estimated unless supplied.
+   Left/right, forward/back and up/down gains are separately adjustable from 0–4x
    (default 2x, zero disables that axis), independent of head angles. Travel is bounded to 0.50m horizontally/in depth
    and 0.30m vertically. Rotation is never applied to this position vector.
    Holding still does not drift; the mapping is an offset, not movement velocity.
-5. Adaptive filters use 12ms time constants for fast changes, 30ms for small
-   rotations and 25ms for small position changes. Face loss eases home after
-   650ms; reacquisition after 1.5s records a new neutral.
+5. Rotation filters use 12ms/30ms time constants; position uses 16ms/55ms for
+   moving/quiet estimates. Face loss eases home after 650ms. Reacquisition keeps
+   the saved neutral; use Recenter after moving the phone or changing seats.
 6. First-person camera uses the resulting rotation and position. The independent
    third-person camera shows the same head from outside. First person has a
    100-degree field of view on the longer viewport dimension at default zoom.
@@ -88,8 +97,8 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    to third person and the Reflector camera. Update the avatar before rendering
    the mirror. The mirror/frame are hidden in third person to avoid obstruction.
 8. Pose Lite estimates shoulders, elbows, wrists and hips. Twelve valid frames
-   calibrate body proportions. Seated mode can infer a neutral lower torso when
-   hips are hidden; standing requires visible hips. Missing arm joints disappear.
+   calibrate body proportions. Seated mode anchors an estimated pelvis in game
+   space regardless of hip visibility; standing requires visible hips. Missing arm joints disappear.
    After 500ms without a usable torso, hide it and continue head-only rendering.
 9. Body world landmarks are hip-relative shape, not absolute position. Subtract
    pose eyes 2/5, map to the mirrored player frame, then add camera position once.
@@ -97,6 +106,9 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    only the camera. The sculpture now renders physical head angles.
 10. The larger mirror shows the torso and arms. Body: off terminates the pose
     worker. Calibrate body changes body calibration only; Recenter resets both.
+11. Guided setup opens on startup and can be skipped. It captures at least 16
+    distinct stable head fits over 2.2 seconds, then optionally tunes lateral and
+    depth gain to comfortable leans. Head-turn and vertical gains stay independent.
 
 The status readout reports result FPS and frame-capture-to-result processing
 latency. It does not measure total sensor-to-screen latency. Synthetic response

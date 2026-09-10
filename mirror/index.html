@@ -8,6 +8,9 @@
 
 #controls{max-height:48vh;overflow:auto;background:linear-gradient(#172633ed,#172633b0);padding:12px;border-radius:12px;top:10px;left:10px;right:10px}#body-status{flex-basis:100%;font-size:13px}#movement-controls{flex-basis:100%}#movement-controls summary{font-size:14px;padding:6px 0}#movement-sliders{display:flex;flex-wrap:wrap;gap:12px;padding-top:8px}#movement-sliders output{min-width:3em}#calibrate-body{border-color:#8fb7c8}@media(max-width:600px){#controls{gap:8px}button,select{padding:8px;font-size:14px}h1{margin-bottom:0}#hint{bottom:24px;max-width:160px}}
 </style></head><body>
+<style>
+dialog{color:#eef3f7;background:#172633;border:1px solid #688396;border-radius:18px;padding:22px;width:min(540px,94vw);max-height:92dvh;overflow:auto}dialog::backdrop{background:#07121ac9}dialog h2{margin:0 0 12px;font-size:22px}dialog p{font-size:16px;line-height:1.5}dialog label{display:block;margin:14px 0}dialog input[type=number]{width:100px;padding:8px;font:inherit}dialog select{margin-top:8px;display:block}dialog details{padding:4px 0}dialog summary{font-size:15px}dialog .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}dialog button{min-height:42px}#setup-start,#setup-next,#setup-finish{background:#35667b}#setup-camera{display:block;width:100%;max-height:32vh;object-fit:contain;background:#0a1722;border-radius:10px}#setup-progress{width:100%;height:12px;margin-top:10px}#setup-feedback{min-height:45px}[hidden]{display:none!important}
+</style>
 
 <canvas id="gl"></canvas><video id="cam" autoplay muted playsinline></video>
 
@@ -16,7 +19,7 @@
 <select id="head-mode" aria-label="Head tracking"><option value="first">Head tracking on</option><option value="off">Pause view</option></select>
 <select id="view-mode" aria-label="Viewpoint"><option value="third">Third person</option><option value="first">First person + mirror</option></select>
 <select id="body-mode" aria-label="Body tracking mode"><option value="seated">Body: seated</option><option value="standing">Body: standing</option><option value="off">Body: off</option></select>
-<button id="recenter">Recenter</button><button id="calibrate-body">Calibrate body</button><button id="show-camera">Show camera</button>
+<button id="recenter">Recenter</button><button id="setup-open">Guided setup</button><button id="calibrate-body">Calibrate body</button><button id="show-camera">Show camera</button>
 <details id="movement-controls"><summary>Movement sensitivity</summary><div id="movement-sliders">
 <label>Head turn <input id="head-sensitivity" aria-label="Head turn sensitivity" type="range" min="0.5" max="4" step="0.25" value="1.5"><output id="gain">1.5×</output></label>
 <label>Left / right <input id="lateral-sensitivity" aria-label="Left right movement sensitivity" type="range" min="0" max="4" step="0.25" value="2"><output id="lateral-gain">2×</output></label>
@@ -25,6 +28,23 @@
 </div></details>
 <div id="head-status" role="status">Look straight ahead to set the center</div><div id="body-status" role="status">Keep your face, shoulders and arms in view</div>
 </div>
+<dialog id="calibration" aria-labelledby="setup-title">
+<h2 id="setup-title">Set up your seated view</h2>
+<div id="setup-intro">
+<p id="setup-loading" role="status">Starting camera… Allow camera access to begin calibration.</p>
+<p>Get comfortable, keep your phone fixed, and leave your face and shoulders in view. Your legs and hips can stay behind the desk when seated.</p>
+<label>How are you playing?<select id="setup-mode"><option value="seated">Seated (recommended)</option><option value="standing">Standing</option></select></label>
+<p>First we save a steady center. Then you can set how much a comfortable lean moves your view.</p>
+<details><summary>Optional distance calibration</summary>
+<label>Measured distance from camera to your eyes (cm)<br><input id="setup-distance" type="number" min="25" max="150" step="1" placeholder="Optional" inputmode="numeric"></label>
+<p>Measure at your relaxed starting position. Leave blank for an estimate. This adjusts scale; it does not turn the webcam into a depth sensor.</p>
+<label>Camera horizontal field of view (degrees)<br><input id="setup-fov" type="number" min="40" max="100" step="1" value="60" required></label>
+<p>Keep 60 unless you know the field of view of your camera stream. This is separate from the game's view angle.</p>
+</details></div>
+<div id="setup-live" hidden><p id="setup-instruction"></p><canvas id="setup-camera" width="320" height="240" aria-label="Mirrored camera for calibration"></canvas><progress id="setup-progress" max="1" value="0"></progress><p id="setup-feedback" role="status"></p></div>
+<div id="setup-complete" hidden><p id="setup-result"></p><p>Use Recenter if you change chairs or move the phone. Guided setup is always available to try again.</p></div>
+<div class="actions"><button id="setup-start">Begin calibration</button><button id="setup-next" hidden>Continue</button><button id="setup-finish" hidden>Start playing</button><button id="setup-retry" hidden>Try again</button><button id="setup-skip">Skip setup</button></div>
+</dialog>
 
 <details id="head-preview"><summary id="head-label">Your head</summary><canvas id="head-canvas" aria-label="Tracked sculpture head preview"></canvas></details><div id="hint">Sit or stand naturally to calibrate.<br>Use first person to test the mirror.</div><div id="status">Starting camera…</div>
 
@@ -36,8 +56,9 @@ import * as THREE from 'three';
 
 import {Reflector} from 'three/addons/objects/Reflector.js';
 
-import {HeadView} from './head/HeadView.js?v=body1';
-import {BodyView} from './body/BodyView.js?v=body1';
+import {HeadView} from './head/HeadView.js?v=seat2';
+import {Calibration} from './head/Calibration.js?v=seat2';
+import {BodyView} from './body/BodyView.js?v=seat2';
 import {TrackedBody} from './body/TrackedBody.js?v=body1';
 
 
@@ -82,7 +103,7 @@ for(const [x,y,w,h] of [[-.665,-.3,.03,1.66],[.665,-.3,.03,1.66],[0,.515,1.3,.03
 
 const observer=new THREE.PerspectiveCamera(55,1,.03,15);observer.position.set(1,.35,-1.8);observer.lookAt(0,-.32,0);observer.layers.enable(1);mirror.getReflectionCamera(observer).layers.enable(1);
 
-let avatar=null,head=null,body=null;
+let avatar=null,head=null,body=null,setup=null;
 const bodyAvatar=new TrackedBody(scene);
 
 try{avatar=new TrackedHead(scene,$('head-canvas'),$('head-label'));}catch{$('head-label').textContent='Head preview unavailable';}
@@ -94,20 +115,26 @@ addEventListener('resize',resize);resize();
 for(const [input,output] of [['head-sensitivity','gain'],['lateral-sensitivity','lateral-gain'],['depth-sensitivity','depth-gain'],['vertical-sensitivity','vertical-gain']]) $(input).oninput=()=>$(output).textContent=$(input).value+'\u00d7';
 $('show-camera').onclick=()=>{$('show-camera').textContent=document.body.classList.toggle('show-camera')?'Hide camera':'Show camera';};
 
-let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);avatar?.update(camera,head,now);bodyAvatar.update(camera,body?.joints);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
+let last=performance.now();function loop(now){const dt=Math.min((now-last)/1000,.1);last=now;head?.update(now,dt);body?.update(now,dt);setup?.update(now);avatar?.update(camera,head,now);bodyAvatar.update(camera,body?.joints);const third=$("view-mode").value==="third";mirror.visible=!third;for(const bar of mirrorFrame)bar.visible=!third;renderer.render(scene,third?observer:camera);requestAnimationFrame(loop);}requestAnimationFrame(loop);
 
 async function start(){
 
- if(Q.has('preview')){$('status').remove();$('head-status').textContent='Scene preview · open without ?preview for live tracking';$('body-status').textContent='Body appears when tracking starts';$('recenter').disabled=true;$('calibrate-body').disabled=true;return;}
+ if(Q.has('preview')){$('status').remove();$('head-status').textContent='Scene preview · open without ?preview for live tracking';$('body-status').textContent='Body appears when tracking starts';$('recenter').disabled=true;$('calibrate-body').disabled=true;$('setup-open').disabled=true;return;}
 
+ setup=new Calibration();
+ $('status').remove();$('head-status').textContent='Choose calibration or skip setup to start your camera';
+ setup.onRequest=async()=>{
+ $('head-status').textContent='Starting camera… Allow camera access to continue.';
  const video=$('cam');video.srcObject=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:60}},audio:false});await video.play();
 
- head=new HeadView(video,camera,{mode:$('head-mode'),recenter:$('recenter'),status:$('head-status'),sensitivity:$('head-sensitivity'),lateralSensitivity:$('lateral-sensitivity'),depthSensitivity:$('depth-sensitivity'),verticalSensitivity:$('vertical-sensitivity'),hfov:Math.PI/3});$('status').remove();
+ head=new HeadView(video,camera,{mode:$('head-mode'),recenter:$('recenter'),status:$('head-status'),sensitivity:$('head-sensitivity'),lateralSensitivity:$('lateral-sensitivity'),depthSensitivity:$('depth-sensitivity'),verticalSensitivity:$('vertical-sensitivity'),hfov:Math.PI/3});
  body=new BodyView(video,head,{mode:$('body-mode'),status:$('body-status'),recenter:$('calibrate-body')});head.body=body;
  $('recenter').addEventListener('click',()=>body.pose.recenter($('body-mode').value));
+ setup.attach(head,body);
+ };
 
 }
 
-start().catch(e=>{$('status').textContent='Camera could not start. Allow camera access and reload. '+e.message;});
+start().catch(e=>{const message='Camera could not start. Allow camera access and reload. '+e.message;if($('status'))$('status').textContent=message;$('setup-loading').hidden=false;$('setup-loading').textContent=message;});
 
 </script></body></html>

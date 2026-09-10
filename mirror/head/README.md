@@ -1,7 +1,8 @@
 # Responsive head camera controller
 
 The active page combines head tracking with optional seated/standing upper-body
-tracking. See `../body/README.md` for the body model and calibration.
+tracking. See `CALIBRATION.md` for guided startup, perspective depth and seated
+stability, and `../body/README.md` for the body model.
 Hand rendering, hand detection, hand fixtures and object manipulation modules were
 removed from this route. Detailed hands remain absent; body arms end at the wrists.
 Historical hand work is recoverable from Git history.
@@ -20,15 +21,17 @@ the tasks never run inference concurrently. Body: off restores head-only schedul
 Frame rate depends on the device and camera. The HUD reports actual
 inference-result fps and capture-to-result latency, not end-to-end camera latency.
 
-Filtering uses 12ms time constants during fast changes, 30ms for smaller rotations
-and 25ms for smaller positional changes (previously 150ms / 85ms). This reduces lag
+Rotation filtering uses 12ms time constants during fast changes and 30ms for
+smaller rotations. Spatial position uses 16ms for motion and 55ms for small corrections. This reduces lag
 while retaining some smoothing. No prediction overshoot is introduced. A synthetic
 step-response test checks the filter, not total live device latency.
 
-No eye gaze or expression coefficients are used. The face plane estimates angles;
-fixed facial landmarks estimate centre and relative depth. The source is a monocular
+No eye gaze or expression coefficients are used. A 23-point canonical face fit
+jointly estimates rotation and eye-origin position through perspective projection.
+The face plane is only an initializer. The source is a monocular
 webcam, so this is approximate spatial tracking. Recenter while facing forward.
 
 Run node mirror/head/pose.test.mjs for direction, position/angle independence,
-limits, loss handling and step response. Open head/verify.html to test the real
+limits, loss handling and step response. Also run spatial.test.mjs and
+calibration.test.mjs for the active position solver and startup flow. Open head/verify.html to test the real
 face model without a webcam. Use ?preview for a static room/head preview only.

@@ -1,5 +1,5 @@
 import {FilesetResolver,PoseLandmarker} from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/vision_bundle.mjs';
-import {upperBodyPose} from './pose.mjs?v=body1';
+import {upperBodyPose} from './pose.mjs?v=seat2';
 let tracker;
 try{
   const files=await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1/wasm',true);
