@@ -58,7 +58,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 38)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 39)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -86,7 +86,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 38;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 39;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -432,7 +432,7 @@ function applyView(force) {
   if (force || canvas.width !== (w * pr | 0) || canvas.height !== (h * pr | 0) || applyView.fp !== fp || applyView.fa !== frameW / frameH) {
     applyView.fp = fp; applyView.fa = frameW / frameH;
     renderer.setSize(w, h, false);
-    if (fp) { renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); camera.aspect = w / h; camera.fov = 80; }
+    if (fp) { renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); camera.aspect = w / h; camera.fov = 75; }
     else {   // mirror: the camera's whole frame, one to one, letterboxed into the pane (black bars when the shapes differ)
       const fa = frameW / frameH, rw = w / h > fa ? h * fa : w, rh = w / h > fa ? h : w / fa, rx = (w - rw) / 2, ry = (h - rh) / 2;
       renderer.setScissorTest(false); renderer.clear();
@@ -443,7 +443,7 @@ function applyView(force) {
   }
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
   if (dbgCam) { camera.position.set(dbgCam[0], dbgCam[1], dbgCam[2]); camera.lookAt(dbgCam[3], dbgCam[4], dbgCam[5]); worldGroup.scale.x = 1; }
-  else if (fp) { camera.position.set(0, 0.12, eyeZ); camera.lookAt(0, -0.2, 0.5); worldGroup.scale.x = 1; }   // eyes behind my hands (see eyeZ); the opponent is mirrored beyond the phone plane, ~1 m away, facing me
+  else if (fp) { camera.position.set(0, 0.35, eyeZ); camera.lookAt(0, -0.1, 0.6); worldGroup.scale.x = 1; }   // eyes 35 cm above the phone axis and behind my hands (see eyeZ), looking down the table at the targets
   else {   // looks where the phone looks, from where navigation has taken the player (the hands move with the player, so the video overlay stays exact)
     camera.position.set(0, 0, 0); camera.lookAt(0, Math.sin(pitch), -Math.cos(pitch)); worldGroup.scale.x = -1;
   }
@@ -467,7 +467,7 @@ for (const z of [-3.2, 3.2]) {   // a wall behind each player
 
 // --- revolver + targets (first person). No mode: a closed hand near the revolver picks it up, the barrel follows the
 // hand (wrist -> middle knuckle), extending and curling the index finger pulls the trigger, an open hand drops it. ------
-const GUN_HOME = new THREE.Vector3(0.2, FLOOR_Y + 0.025, -0.3);   // on the table, to the right, within reach
+const GUN_HOME = new THREE.Vector3(0.3, FLOOR_Y + 0.025, -0.35);   // on the table, to the right and in front, at a depth the phone still tracks
 const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d45, metalness: 0.8, roughness: 0.35 }), woodMat = new THREE.MeshStandardMaterial({ color: 0x6b3f22, roughness: 0.7 });
 function makeRevolver() {   // barrel along local +z, grip down (-y); the muzzle is at (0, 0.03, 0.15)
   const g = new THREE.Group();
@@ -498,16 +498,22 @@ for (let i = 0; i < 5; i++) {
 }
 const flash = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe08a })); flash.visible = false; worldGroup.add(flash);
 const ray = new THREE.Raycaster();
-function shootRay(from, dir, now, reach = 4) {   // hitscan against the targets; knocks the hit target over
+function shootRay(from, dir, now, reach = 4, assistDeg = 12) {   // hitscan against the targets, with aim assist; knocks the hit target over
   ray.set(from, dir); const hit = ray.intersectObjects(targets.map(t => t.disc), false)[0];
-  if (hit) { const t = targets.find(t => t.disc === hit.object); if (t && !t.hitT) { t.hitT = now; gun.hits++; } }
-  return hit ? hit.point : from.clone().addScaledVector(dir, reach);
+  let t = hit && targets.find(t => t.disc === hit.object), end = hit ? hit.point : null;
+  if (!t) {   // nearest target within the assist cone
+    let best = null, bestAng = assistDeg * Math.PI / 180; const c = V();
+    for (const tg of targets) { tg.disc.getWorldPosition(c); const ang = c.clone().sub(from).angleTo(dir); if (ang < bestAng) { bestAng = ang; best = tg; end = c.clone(); } }
+    t = best;
+  }
+  if (t && !t.hitT) { t.hitT = now; gun.hits++; }
+  return end || from.clone().addScaledVector(dir, reach);
 }
 // Spider-Man web: index + pinky out, middle + ring folded. The strand leaves the palm along the palm normal (the side
 // facing the phone, i.e. toward the targets), sticks to what it hits and stays attached to the hand for a second.
 function shootWeb(key, palm, dir, now) {
   gun.webs++; gun.lastWeb = now;
-  const end = shootRay(palm, dir, now, 3);
+  const end = shootRay(palm, dir, now, 3, 15);
   const m = new THREE.Mesh(webGeo, webMat); m.castShadow = true; worldGroup.add(m);
   gun.strands.push({ mesh: m, key, end, t: now });
 }
@@ -525,9 +531,8 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
     if (Q.get("gunat") === "hand" && !gun.holder && !gun.placed) { gun.mesh.position.copy(palm); gun.placed = true; }   // test hook: the revolver spawns in the hand
     const webPose = ext[0] && !ext[1] && !ext[2] && ext[3];   // index + pinky out, middle + ring folded (thumb free)
     if (webPose && !gun.prevWeb[h.key] && now - gun.lastWeb > 400) {
-      _gf.subVectors(pts[9], pts[0]); _gu.subVectors(pts[17], pts[5]); _gs.crossVectors(_gf, _gu).normalize();   // palm normal
-      if (_gs.z < 0) _gs.negate();   // the side that faces the phone points at the targets beyond it
-      shootWeb(h.key, palm.clone().addScaledVector(_gs, 0.02), _gs.clone(), now);
+      _gf.subVectors(pts[9], pts[0]).normalize();   // the web leaves the wrist in the direction the hand points (fingers toward the phone = toward the targets)
+      shootWeb(h.key, pts[0].clone().addScaledVector(_gf, 0.02), _gf.clone(), now);
     }
     gun.prevWeb[h.key] = webPose;
     const gripping = !ext[1] && !ext[2] && !ext[3];   // middle, ring, pinky curled: a fist or a finger gun
@@ -553,7 +558,7 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
     t.pivot.rotation.x += 0.25 * (goal - t.pivot.rotation.x);
     if (t.hitT && now - t.hitT >= 2000 && Math.abs(t.pivot.rotation.x) < 0.02) t.hitT = 0;
   }
-  const palms = Object.fromEntries(hands.map(h => [h.key, palmCentre(h.pts)]));
+  const palms = Object.fromEntries(hands.map(h => [h.key, h.pts[0].clone()]));   // strands stay attached to the wrist
   gun.strands = gun.strands.filter(w => {
     const age = now - w.t; if (age > 1400) { worldGroup.remove(w.mesh); return false; }
     const from = palms[w.key] || w.mesh.userData.from || w.end; w.mesh.userData.from = from;
@@ -1117,7 +1122,7 @@ async function main() {
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
-    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-0.5, zMin - 0.25); eyeZ += 0.08 * (target - eyeZ); }
+    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-0.7, zMin - 0.55); eyeZ += 0.08 * (target - eyeZ); }
     drawRemote(now); updateGame(now, move); gunUpdate(now, mine);
     if (now - stat.t > 1000) {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;

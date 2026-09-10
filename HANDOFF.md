@@ -970,3 +970,12 @@ out, middle + ring folded, web from the wrist).
   all stand up; open hands do not pick up; synthetic web pose fires once, no re-fire while held, fires again after
   relaxing; the PC screen picks the revolver up from the received hand. MediaPipe does not detect the red Spider-Man
   glove in the owner's photo (gloves/masks defeat the palm detector), so the pose path was proven synthetically.
+
+### 29b. Build 39: first person pulled back, revolver in front, webs aim where the hand points (2026-09-11)
+
+Owner (with phone screenshots): first person far too close (table and revolver under the chin); revolver should sit to
+the side in front; webs must fire where the hand points (his three photos: pose seen from the front / side / fingers
+toward the phone), not along the palm. Changes: eye at (0, 0.35, min(-0.7, 0.55 m behind the nearest hand)) looking at
+(0, -0.1, 0.6), FOV 75; `GUN_HOME` (0.3, table, -0.35); web origin = wrist, direction = wrist -> middle knuckle;
+aim assist in `shootRay` (nearest target within 12°, webs 15°) so pointing roughly at a target hits. Verified: gun test
+green; synthetic pose with fingers toward the phone hits a target, fingers up fires but misses.
