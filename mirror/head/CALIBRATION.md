@@ -41,11 +41,14 @@ the phone or changing seats requires Recenter or Guided setup.
 
 ## Seated body
 
-Seated mode uses an explicitly estimated pelvis fixed in game space at body
-calibration. Face-derived camera movement moves shoulders and arms relative to
-that anchor, permitting a leaning torso without dragging the pelvis. Measured
+Seated mode uses an estimated pelvis with 6cm of free lean relative to the
+calibrated support. Larger head movements carry the pelvis and whole body.
+The neck is capped at calibrated length plus 15 percent (at most 13.8cm), with
+excess displacement translated into the shoulders and arms together. Measured
 hip visibility does not switch the seated pelvis between two tracking sources.
-Body proportions and seat anchor survive occlusion; explicit body calibration
+Body proportions and the support reference survive occlusion. Seated mode can
+hold the last arm pose and keep following a visible head; it labels this fallback
+and clears stale body signals. Explicit body calibration
 or Recenter resets them. Standing mode continues to require visible hips.
 
 The guided lean stages recommend a gain mapping the 90th-percentile comfortable

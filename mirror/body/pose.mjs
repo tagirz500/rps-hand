@@ -39,12 +39,12 @@ export class BodyPose {
   constructor(mode='seated'){this.mode=mode;this.recenter();}
   recenter(mode=this.mode){
     this.mode=mode;this.samples=[];this.neutral=null;this.seen=-Infinity;
-    this.target=null;this.joints={};this.hipsTracked=false;this.signals=null;this.seatHips=null;
+    this.target=null;this.joints={};this.filtered={};this.hipsTracked=false;this.signals=null;this.seatHips=null;
   }
   receive(p,now){
     if(!p) return;
     // Keep seated proportions and seat anchor through desk/arm occlusion.
-    if(now-this.seen>1500){this.target=null;this.joints={};}
+    if(now-this.seen>1500){this.target=null;this.joints={};this.filtered={};}
     if(now-this.seen>500&&!this.neutral)this.samples=[];
     this.seen=now;this.hipsTracked=p.hipsTracked;
     if(!this.neutral){
@@ -79,18 +79,32 @@ export class BodyPose {
       roll:Math.atan2(across[1],Math.hypot(across[0],across[2]))-this.neutral.roll,
       leanX:shoulders[0]-hips[0]-this.neutral.lean[0],leanZ:shoulders[2]-hips[2]-this.neutral.lean[2],hipsTracked:p.hipsTracked};
   }
-  update(now,dt,enabled=true,eyePosition=[0,0,0]){
-    if(!enabled||now-this.seen>500||!this.target){this.joints={};this.signals=null;return null;}
+  update(now,dt,enabled=true,eyePosition=[0,0,0],followHead=false){
+    if(!enabled||!this.target||(now-this.seen>500&&!followHead)){this.joints={};this.filtered={};this.signals=null;return null;}
     const a=1-Math.exp(-Math.min(dt,.1)/.035);
     for(const [key,p] of Object.entries(this.target)){
-      if(!p){this.joints[key]=null;continue;}
-      const old=this.joints[key];
-      this.joints[key]=old?p.map((v,i)=>old[i]+(v-old[i])*a):[...p];
+      if(!p){this.filtered[key]=null;continue;}
+      const old=this.filtered[key];
+      this.filtered[key]=old?p.map((v,i)=>old[i]+(v-old[i])*a):[...p];
     }
+    this.joints=Object.fromEntries(Object.entries(this.filtered).map(([key,p])=>[key,p?[...p]:null]));
     if(this.mode==='seated'){
+      // Large head motion carries the shoulders/arms instead of lengthening the neck.
+      const neck=[0,-.11,.045],shoulder=mid(this.joints.leftShoulder,this.joints.rightShoulder);
+      const rest=clamp(length(sub(this.neutral.shoulder,neck)),.055,.12),maxNeck=rest*1.15;
+      const offset=sub(shoulder,neck),distance=length(offset);
+      if(distance>maxNeck){
+        const correction=offset.map(v=>v*(maxNeck/distance-1));
+        for(const p of Object.values(this.joints))if(p)for(let i=0;i<3;i++)p[i]+=correction[i];
+      }
       this.seatHips??=Object.fromEntries(['leftHip','rightHip'].map(key=>[key,this.joints[key].map((v,i)=>v+eyePosition[i])]));
-      for(const key of ['leftHip','rightHip'])this.joints[key]=this.seatHips[key].map((v,i)=>v-eyePosition[i]);
+      const desired=mid(this.joints.leftHip,this.joints.rightHip).map((v,i)=>v+eyePosition[i]);
+      const base=mid(this.seatHips.leftHip,this.seatHips.rightHip),travel=sub(desired,base);
+      // Keep only 6cm of seated lean. All excess becomes whole-body travel.
+      const carry=Math.max(0,1-.06/Math.max(1e-9,length(travel)));
+      for(const key of ['leftHip','rightHip'])this.joints[key]=this.seatHips[key].map((v,i)=>v+travel[i]*carry-eyePosition[i]);
     }
+    if(now-this.seen>500)this.signals=null;
     return this.joints;
   }
 }

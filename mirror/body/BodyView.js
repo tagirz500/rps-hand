@@ -1,4 +1,4 @@
-import {BodyPose} from './pose.mjs?v=seat2';
+import {BodyPose} from './pose.mjs?v=carry3';
 
 export class BodyView {
   constructor(video,head,{mode,status,recenter}){
@@ -57,13 +57,13 @@ export class BodyView {
     const active=this.enabled&&this.head.mode!=='off'&&!document.hidden;
     if(active&&!this.worker&&!this.failed&&this.head.ready)this.start();
     if(active&&!this.failed)this.capture(now);
-    this.joints=this.pose.update(now,dt,active&&now-this.head.pose.seen<650,this.head.camera?.position?.toArray?.()??[0,0,0]);
+    this.joints=this.pose.update(now,dt,active&&now-this.head.pose.seen<650,this.head.camera?.position?.toArray?.()??[0,0,0],this.control.value==='seated');
     const mode=this.control.value;
     this.status.textContent=!this.enabled?'Body off · head tracking only':!active?'Body paused':this.failed?'Body unavailable · head tracking continues':!this.ready?'Loading body tracking…':
-      now-this.pose.seen>500?'Show your face and both shoulders · head tracking continues':
+      now-this.pose.seen>500?(this.joints?'Body follows head · arm pose held until shoulders return':'Show your face and both shoulders · head tracking continues'):
       mode==='standing'&&!this.pose.hipsTracked?'Show your hips for standing tracking · head tracking continues':
       !this.pose.neutral?`Hold a relaxed ${mode} pose · calibrating ${Math.min(100,Math.round(this.pose.samples.length/12*100))}%`:
-      `Body: ${this.fps} fps · ${Math.round(this.latency)} ms · ${mode}${mode==='seated'?' · seat support estimated':this.pose.hipsTracked?'':' · lower torso estimated'}`;
+      `Body: ${this.fps} fps · ${Math.round(this.latency)} ms · ${mode}${mode==='seated'?' · head carries body':this.pose.hipsTracked?'':' · lower torso estimated'}`;
     return this.joints;
   }
 }

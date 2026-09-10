@@ -25,8 +25,22 @@ assert.equal(seated.signals.hipsTracked,false);
 assert.equal(seated.update(1400,.016),null,'Stale body disappears');
 const neutralBefore=seated.neutral;seated.receive(seat,2500);assert.equal(seated.neutral,neutralBefore,'Desk occlusion preserves seated calibration');
 const anchored=seated.update(2500,.016,true,[0,0,0]);const hipWorld=[...anchored.leftHip];
-const shiftedSeat=seated.update(2520,.016,true,[.1,.03,-.08]);
-shiftedSeat.leftHip.forEach((v,i)=>assert.ok(Math.abs(v+[.1,.03,-.08][i]-hipWorld[i])<1e-9,'Seat stays fixed while eyes lean'));
+const shiftedSeat=seated.update(2520,.016,true,[.02,0,0]);
+shiftedSeat.leftHip.forEach((v,i)=>assert.ok(Math.abs(v+[.02,0,0][i]-hipWorld[i])<1e-9,'Small seated lean retains support'));
+for(const eye of [[.4,0,0],[-.4,0,0],[0,0,-.4],[0,0,.4],[0,.3,0]]){
+ const carried=seated.update(2540,.016,true,eye);
+ const worldHip=carried.leftHip.map((v,i)=>v+eye[i]);
+ assert.ok(Math.hypot(...worldHip.map((v,i)=>v-hipWorld[i]))>.2,'Large movement carries pelvis');
+ const shoulder=carried.leftShoulder.map((v,i)=>(v+carried.rightShoulder[i])/2);
+ const hip=carried.leftHip.map((v,i)=>(v+carried.rightHip[i])/2);
+ assert.ok(Math.hypot(...shoulder.map((v,i)=>v-hip[i]))<.52,'Torso does not stretch');
+}
+const far={...seat,joints:Object.fromEntries(Object.entries(seat.joints).map(([k,v])=>[k,v?.map((n,i)=>n+(i===0?.4:0))??null]))};
+seated.receive(far,2600);let neckPose;for(let i=0;i<15;i++)neckPose=seated.update(2600,.1,true,[.4,0,0]);
+const shoulders=neckPose.leftShoulder.map((v,i)=>(v+neckPose.rightShoulder[i])/2);
+assert.ok(Math.hypot(...shoulders.map((v,i)=>v-[0,-.11,.045][i]))<=.138001,'Neck length remains bounded');
+assert.ok(seated.update(4000,.016,true,[.4,0,0],true),'Head can carry last body pose through shoulder loss');
+assert.equal(seated.signals,null,'Held pose does not claim live body signals');
 const standing=new BodyPose('standing');for(let i=0;i<20;i++)standing.receive(seat,i*66);
 assert.equal(standing.neutral,null,'Hidden hips must not calibrate standing mode');
 for(let i=0;i<12;i++)standing.receive(p,1400+i*66);

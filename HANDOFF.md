@@ -5,7 +5,7 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?seated=2
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?carry=3
 
 ## For the next coding session
 
@@ -16,7 +16,9 @@ upper-body tracking for seated and standing play. Read `mirror/body/README.md`
 for calibration, coordinates, scheduling and limits. Detailed hands remain absent.
 The latest change prioritizes seated play: read `mirror/head/CALIBRATION.md` for
 the optional guided setup, perspective head fit, measured-distance scale and
-fixed seated pelvis. It also describes remaining camera/face calibration limits.
+seated body support. Large head movements now carry the whole body beyond a
+6cm lean allowance; neck length is bounded instead of stretching. It also
+describes remaining camera/face calibration limits.
 
 ## Current files
 
@@ -97,9 +99,11 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    to third person and the Reflector camera. Update the avatar before rendering
    the mirror. The mirror/frame are hidden in third person to avoid obstruction.
 8. Pose Lite estimates shoulders, elbows, wrists and hips. Twelve valid frames
-   calibrate body proportions. Seated mode anchors an estimated pelvis in game
-   space regardless of hip visibility; standing requires visible hips. Missing arm joints disappear.
-   After 500ms without a usable torso, hide it and continue head-only rendering.
+   calibrate body proportions. Seated mode allows 6cm of lean, then moves the
+   whole body with the head. A bounded neck shifts shoulders/arms together when
+   tracking would otherwise stretch it. Standing requires visible hips.
+   After 500ms without usable shoulders, seated mode holds the last arm pose
+   while following a visible head, labels the fallback and clears body signals.
 9. Body world landmarks are hip-relative shape, not absolute position. Subtract
    pose eyes 2/5, map to the mirrored player frame, then add camera position once.
    Torso/arm articulation comes from pose geometry; navigation turn gain affects
