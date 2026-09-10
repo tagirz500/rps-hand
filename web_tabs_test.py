@@ -29,7 +29,7 @@ async def run():
         print("tab2:", await t2.inner_text("#net"), "| tab1 still:", await t1.inner_text("#net"), "| codes differ:", c1 != c2, f"({c1} vs {c2})", "| screen:", await pc.inner_text("#net"))
         # the screen reloads: keeps its number, phone re-links
         await pc.reload(wait_until="load")
-        await pc.wait_for_function("/^d{3}$/.test(document.getElementById('pairCode').textContent.trim())", timeout=30000)
+        await pc.wait_for_function("/^\d{3}$/.test(document.getElementById('pairCode').textContent.trim())", timeout=30000)
         sc2 = await pc.inner_text("#pairCode")
         await pc.wait_for_function("document.getElementById('net').textContent.startsWith('linked to phone')", timeout=120000)
         print("screen after reload: code", sc2, "(same:", sc2 == sc, ") |", await pc.inner_text("#net"), "| tab2:", await t2.inner_text("#net"))

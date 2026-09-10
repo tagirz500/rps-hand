@@ -930,3 +930,10 @@ code is per TAB (sessionStorage) and a taken code is replaced at once (`myCode(t
 handler once the error handler has given up on a peer; a reloaded SCREEN waits out its own stale registration (up to
 60 s, showing "busy… retrying") so its QR/number stay valid; TURN over TCP 443 added. `web_tabs_test.py` reproduces the
 two-tab scenario and the screen reload.
+
+### 28c. Build 35: the screen opens as a mirror (2026-09-10, night)
+
+Owner: "DO MIRROR". The SCREEN now starts in mirror view (VIEW toggles to first person for matches). The phone adds
+its levelled pitch and camera frame size to every hands packet (`p`, `fw`, `fh`); the screen applies them so its
+mirror camera looks where the phone looks and uses the phone's cover-crop FOV, i.e. the same picture as the phone's
+own mirror mode. In mirror view the opponent (beyond the phone plane) is behind the camera and not visible.

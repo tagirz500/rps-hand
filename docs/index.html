@@ -57,7 +57,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 34)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 35)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -85,7 +85,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 34;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 35;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -773,6 +773,7 @@ window.dbgRemote = remote;         // test hook: what remote hands this page is 
 let net = null;
 function remoteHand(key) { if (!remote.has(key)) remote.set(key, { hand: makeHand(), a: null, t: 0 }); return remote.get(key); }
 function onHands(pkt, who) {
+  if (SCREEN && who === "me" && pkt.fw) { pitch = pkt.p || 0; if (frameW !== pkt.fw || frameH !== pkt.fh) { frameW = pkt.fw; frameH = pkt.fh; applyView(true); } }   // screen: mirror like the phone
   const now = performance.now();
   for (const h of pkt.hands) { const r = remoteHand(who + ":" + h.n); r.a = Float32Array.from(h.a); r.t = now; r.m = h.m; }
   if (who === "opp") theirMove = pkt.m ?? null;
@@ -832,7 +833,7 @@ function showPair(sc) {
   $("qr").innerHTML = ""; try { new QRCode($("qr"), { text: url, width: 200, height: 200 }); } catch (e) { console.warn("qr", e); }
 }
 async function screenMain() {   // the PC: no camera, no tracker; render the linked phone's hands (and its opponent's) first person
-  document.body.classList.add("screen"); view = 0;
+  document.body.classList.add("screen"); view = 1; $("view").textContent = "VIEW: mirror";   // the screen opens as a mirror of the phone; VIEW switches to first person
   SKIN = await skinPromise; window.SKIN = SKIN;
   $("status").remove();
   net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
@@ -963,7 +964,7 @@ async function main() {
     }
     if (net && (net.opp || net.screen)) {   // stream my hands to the opponent and the PC screen, mm precision
       const hs = []; for (const s of [slots.Right, slots.Left]) if (s.gl && recv - s.lastSeen < hold) hs.push({ n: s.key, a: Array.from(s.gl, v => Math.round(v * 1000) / 1000), m: moveFromFingers(s.ext) });
-      net.sendHands({ t: "h", who: "me", hands: hs, m: move, ts: Math.round(cap) });
+      net.sendHands({ t: "h", who: "me", hands: hs, m: move, ts: Math.round(cap), p: tiltOn ? pitch : 0, fw: frameW, fh: frameH });
     }
     if (useRvfc && framePending) pump();   // a newer camera frame arrived while this one was in the tracker: start it now, not at the next rAF
   };
