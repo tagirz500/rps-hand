@@ -937,3 +937,13 @@ Owner: "DO MIRROR". The SCREEN now starts in mirror view (VIEW toggles to first 
 its levelled pitch and camera frame size to every hands packet (`p`, `fw`, `fh`); the screen applies them so its
 mirror camera looks where the phone looks and uses the phone's cover-crop FOV, i.e. the same picture as the phone's
 own mirror mode. In mirror view the opponent (beyond the phone plane) is behind the camera and not visible.
+
+### 28d. Build 36: mirror = the whole camera frame, one to one (2026-09-10, night)
+
+Owner: "the mirror camera has to be at the same distance as the actual camera, one to one"; first person is fine.
+Mirror view now renders the camera's entire frame with the camera's own vertical FOV, letterboxed into the pane
+(`renderer.setViewport/setScissor`, black bars when the pane's shape differs), instead of the old cover crop that
+fitted the frame's width to a wide PC window and enlarged the hand. The video pane switches to `object-fit: contain`
+in mirror view (`body.mirror`) so video, overlay and 3D mirror all show the same full frame. Because rendering uses
+the same assumed FOV as the back-projection, image positions reproduce exactly whatever the true FOV is (phone
+mirror reproj 0.12 %).

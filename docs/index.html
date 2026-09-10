@@ -12,6 +12,7 @@
   @media (orientation: landscape) { #app { grid-template-rows: 1fr; grid-template-columns: 1fr 1fr; } }
   .pane { position: relative; overflow: hidden; }
   video, #ov, #still { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); background: #000; }
+  body.mirror video, body.mirror #ov, body.mirror #still { object-fit: contain; }   /* mirror view = the whole camera frame, one to one */
   #ov { position: absolute; inset: 0; background: none; pointer-events: none; }
   #gl { width: 100%; height: 100%; display: block; background: #1a1f2b; }
   .hud { position: absolute; left: 12px; right: 12px; pointer-events: none; text-shadow: 0 0 6px #000, 0 0 2px #000; font-weight: 700; }
@@ -57,7 +58,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 35)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 36)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -85,7 +86,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 35;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 36;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -427,11 +428,17 @@ const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("vide
 $("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); };
 function applyView(force) {
   const w = canvas.clientWidth, h = canvas.clientHeight, pr = renderer.getPixelRatio(), fp = VIEWS[view] === "first person";
-  if (force || canvas.width !== (w * pr | 0) || canvas.height !== (h * pr | 0)) {
-    renderer.setSize(w, h, false); camera.aspect = w / h;
-    // mirror: match the video pane's object-fit:cover crop (a pane taller than the frame shows the full frame height, a wider pane the full width)
-    const t = Math.tan(HFOV / 2);
-    camera.fov = fp ? 80 : 2 * Math.atan(w / h < frameW / frameH ? t * frameH / frameW : t / (w / h)) * 180 / Math.PI;
+  document.body.classList.toggle("mirror", !fp);
+  if (force || canvas.width !== (w * pr | 0) || canvas.height !== (h * pr | 0) || applyView.fp !== fp || applyView.fa !== frameW / frameH) {
+    applyView.fp = fp; applyView.fa = frameW / frameH;
+    renderer.setSize(w, h, false);
+    if (fp) { renderer.setScissorTest(false); renderer.setViewport(0, 0, w, h); camera.aspect = w / h; camera.fov = 80; }
+    else {   // mirror: the camera's whole frame, one to one, letterboxed into the pane (black bars when the shapes differ)
+      const fa = frameW / frameH, rw = w / h > fa ? h * fa : w, rh = w / h > fa ? h : w / fa, rx = (w - rw) / 2, ry = (h - rh) / 2;
+      renderer.setScissorTest(false); renderer.clear();
+      renderer.setViewport(rx, ry, rw, rh); renderer.setScissor(rx, ry, rw, rh); renderer.setScissorTest(true);
+      camera.aspect = fa; camera.fov = 2 * Math.atan(Math.tan(HFOV / 2) * frameH / frameW) * 180 / Math.PI;   // the camera's own vertical FOV
+    }
     camera.updateProjectionMatrix();
   }
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
