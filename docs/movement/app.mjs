@@ -1,23 +1,24 @@
-import {TrackingScheduler,freshHead} from './tracking-scheduler.mjs?v=60';
-import {ThumbJoystick,measureThumb} from './thumb-joystick.mjs?v=60';
-import {setupThumbstick} from './thumbstick.mjs?v=60';
+import {TrackingScheduler,freshHead} from './tracking-scheduler.mjs?v=61';
+import {ThumbJoystick,measureThumb} from './thumb-joystick.mjs?v=61';
+import {setupThumbstick} from './thumbstick.mjs?v=61';
 
-import {HeadLook,bodyDisplacement} from './head-look.mjs?v=60';
-import {DustMap} from './map.mjs?v=60';
+import {HeadLook,bodyDisplacement} from './head-look.mjs?v=61';
+import {DustMap} from './map.mjs?v=61';
 import {HeadView} from '../head/HeadView.js';
 import * as THREE from 'three';
-import {setupUI} from './ui.mjs?v=60';
+import {setupUI} from './ui.mjs?v=61';
 import {phoneCamera} from './camlink.mjs';   // ?cam: the phone streams its camera to this page over WebRTC and the tracker runs here
-import {SwipeController,measurePointer,selectLeftHand} from './swipe.mjs?v=60';
+import {SwipeController,measurePointer,selectLeftHand} from './swipe.mjs?v=61';
+import {makeHandModel,view as handView} from './hand-model.mjs?v=61';   // the right hand as the rigged arm model, in front of the eye
 const $=id=>document.getElementById(id);
 const trackingUI=setupUI();const stick=setupThumbstick($('thumbstick'),$('stickKnob'));
 const trackingLog=[];
-$('saveTracking').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({version:60,frames:trackingLog},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='thumb-tracking-v60.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+$('saveTracking').onclick=()=>{const url=URL.createObjectURL(new Blob([JSON.stringify({version:61,frames:trackingLog},null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='thumb-tracking-v61.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
 const held=new ThumbJoystick();let inputMode='poses',fingerMode='index',trackedHand=null,resting=false;
 const scheduler=new TrackingScheduler();const swipe=new SwipeController();const headLook=new HeadLook();let lookDemo=0;
 const renderer=new THREE.WebGLRenderer({canvas:$('scene'),antialias:false});renderer.setPixelRatio(Math.min(1,Math.sqrt(900000/(innerWidth*innerHeight))));
 const scene=new THREE.Scene();scene.background=new THREE.Color('#25394a');scene.fog=new THREE.FogExp2('#25394a',.018);
-const camera=new THREE.PerspectiveCamera(65,1,.05,200);camera.position.set(0,1.65,7);
+const camera=new THREE.PerspectiveCamera(65,1,.05,200);camera.position.set(0,1.65,7);scene.add(camera);const handModel=makeHandModel(camera);window.handModel=handModel;
 scene.background=new THREE.Color('#abc9d9');scene.fog=new THREE.Fog('#abc9d9',90,180);
 const dustMap=new DustMap(scene);
 dustMap.load().then(()=>{camera.position.copy(dustMap.spawn);$('mapStatus').textContent='Dust II · auto-step on';}).catch(e=>{$('mapStatus').textContent='Map failed to load';$('error').textContent=e.message;});
@@ -26,7 +27,7 @@ let head=null,lastHeadVideo=-1,lastFrameTime=0,lastHUD=-Infinity;let walkReason=
 let worker=null,stream=null,running=false,busy=false,lastVideo=-1,lastResult=0,demo=false,demoRun=null;
 function status(text,active=false){$('status').textContent=text;$('lamp').classList.toggle('on',active);}
 function apply(sample,time){const r=swipe.update(sample,time);const step=bodyDisplacement(r.dx,r.dz,headLook.heading);dustMap.move(camera.position,step.x,step.z);$('gestureStats').textContent=r.active?'MOVE engaged · relax index to release':'Hands free · movement off';status(r.status,r.active);return r;}
-function stop(){stick.reset();held.reset();trackedHand=null;lookDemo=0;headLook.resetLook();head?.worker?.terminate();if(head)clearTimeout(head.timer);head=null;$('headStatus').textContent='Head: camera off';running=false;busy=false;worker?.terminate();worker=null;stream?.getTracks().forEach(t=>t.stop());stream=null;$('cam').srcObject=null;swipe.reset();trackingUI.camera(false);$('start').textContent='Start camera';}
+function stop(){stick.reset();held.reset();trackedHand=null;lookDemo=0;headLook.resetLook();head?.worker?.terminate();if(head)clearTimeout(head.timer);head=null;$('headStatus').textContent='Head: camera off';running=false;busy=false;worker?.terminate();worker=null;stream?.getTracks().forEach(t=>t.stop());stream=null;$('cam').srcObject=null;swipe.reset();handModel.hide();trackingUI.camera(false);$('start').textContent='Start camera';}
 async function start(){
  if(running){stop();status('Paused · camera off');return;}
  stop();demo=false;demoRun=null;$('demoControls').classList.remove('visible');$('error').textContent='';$('start').disabled=true;status('Starting camera…');
@@ -35,15 +36,18 @@ async function start(){
   if(!useCam&&!navigator.mediaDevices?.getUserMedia)throw Error('Camera access needs HTTPS or localhost.');
   stream=useCam?await phoneCamera(t=>status(t)):await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:'user',width:{ideal:640},height:{ideal:480},frameRate:{ideal:60}}});
   $('cam').srcObject=stream;await $('cam').play();trackingUI.camera(true);$('previewImage').style.aspectRatio=$('cam').videoWidth+'/'+$('cam').videoHeight;status('Loading motion tracking…');
-  worker=new Worker(new URL('./tracker.mjs?v=60',import.meta.url),{type:'module'});
+  worker=new Worker(new URL('./tracker.mjs?v=61',import.meta.url),{type:'module'});
   await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('Tracker loading timed out. Check your connection and retry.')),45000);worker.onerror=e=>{clearTimeout(timer);reject(Error(e.message));};worker.onmessage=({data})=>{if(data.type==='ready'){clearTimeout(timer);resolve();}else if(data.type==='error'){clearTimeout(timer);reject(Error(data.message));}};worker.postMessage({type:'init'});});
   worker.onerror=e=>{stop();status('Tracking stopped');$('error').textContent=e.message;};
   worker.onmessage=({data})=>{busy=false;if(data.type==='error'){stop();status('Tracking stopped');$('error').textContent=data.message;return;}if(data.type!=='result')return;
-    lastResult=performance.now();if(lastResult-data.time>450){held.receive(null,lastResult);apply(null,lastResult);trackingUI.draw([],$('cam').videoWidth,$('cam').videoHeight,false,{tip:fingerMode==='index'?8:4,centre:held.centre,viewScale:held.scale,scale:held.effectiveScale,reason:held.reason});walkReason='TRACKING TOO OLD · '+Math.round(lastResult-data.time)+' ms';status(walkReason);return;}
-    let handIndex=inputMode==='index'?selectLeftHand(data):data.landmarks?.length===1?0:-1;
-    if(resting){held.receive(null,lastResult);swipe.reset();walkReason='RESTING';return;}
+    lastResult=performance.now();if(lastResult-data.time>450){held.receive(null,lastResult);apply(null,lastResult);handModel.hide();trackingUI.draw([],$('cam').videoWidth,$('cam').videoHeight,false,{tip:fingerMode==='index'?8:4,centre:held.centre,viewScale:held.scale,scale:held.effectiveScale,reason:held.reason});walkReason='TRACKING TOO OLD · '+Math.round(lastResult-data.time)+' ms';status(walkReason);return;}
+    const n=data.landmarks?.length||0;
+    let handIndex=inputMode==='index'?selectLeftHand(data):n===1?0:n===2?(data.landmarks[0][0].x>data.landmarks[1][0].x?0:1):-1;   // two hands: the physical left (image right, unmirrored) is the joystick, the other one the model
+    const modelIndex=n===2&&handIndex>=0?1-handIndex:-1;
+    if(resting){held.receive(null,lastResult);swipe.reset();handModel.hide();walkReason='RESTING';return;}
     const label=handIndex>=0?data.handedness?.[handIndex]?.[0]?.categoryName:null;
     trackedHand=label;
+    if(modelIndex>=0)handModel.update(data.landmarks[modelIndex],data.worldLandmarks[modelIndex],$('cam').videoWidth,$('cam').videoHeight);else handModel.hide();
     if(inputMode==='index'){
       const sample=handIndex>=0?measurePointer(data.landmarks[handIndex],data.worldLandmarks[handIndex],$('cam').videoWidth/$('cam').videoHeight):null;
       const result=apply(sample,data.time);trackingUI.draw(handIndex>=0?[data.landmarks[handIndex]]:[],$('cam').videoWidth,$('cam').videoHeight,result.active);
@@ -51,13 +55,13 @@ async function start(){
       const sample=handIndex>=0?measureThumb(data.landmarks[handIndex],data.worldLandmarks[handIndex],$('cam').videoWidth/$('cam').videoHeight,fingerMode):null;
       held.receive(sample,lastResult);
       trackingLog.push({time:lastResult,captureTime:data.time,point:sample?.point??null,rest:sample?.rest??false,centre:held.centre,raw:held.raw,x:held.x,z:held.z,reason:held.reason});while(trackingLog.length>450||trackingLog.length&&lastResult-trackingLog[0].time>15000)trackingLog.shift();
-      const active=!!held.direction;walkReason=handIndex<0?'SHOW ONE HAND':held.reason;
+      const active=!!held.direction;walkReason=handIndex<0?'SHOW YOUR LEFT HAND':held.reason;
       $('gestureStats').textContent=`${fingerMode.toUpperCase()} X ${held.x.toFixed(2)} · Y ${(-held.z).toFixed(2)} · raw X ${held.raw.x.toFixed(2)} Y ${(-held.raw.z).toFixed(2)} · tracker ${Math.round(data.inferenceMs||0)} ms`;
       trackingUI.draw(handIndex>=0?[data.landmarks[handIndex]]:[],$('cam').videoWidth,$('cam').videoHeight,active,{tip:fingerMode==='index'?8:4,centre:held.centre,viewScale:held.scale,scale:held.effectiveScale,active,x:held.x,z:held.z,reason:held.reason});
       status(active?fingerMode.toUpperCase()+' · '+held.direction:walkReason,active);
     }
   };
-  head=new HeadView({mode:$('headEnabled').checked?'first':'off',interval:33,widths:[288,384,512],workerUrl:new URL('./head-tracker.mjs?v=60',import.meta.url)});head.pose.sensitivity=1.5;headLook.gain=+$('headGain').value;lastHeadVideo=-1;lastVideo=-1;running=true;lastResult=performance.now();$('start').textContent='Stop camera';status('Show one hand');
+  head=new HeadView({mode:$('headEnabled').checked?'first':'off',interval:33,widths:[288,384,512],workerUrl:new URL('./head-tracker.mjs?v=61',import.meta.url)});head.pose.sensitivity=1.5;headLook.gain=+$('headGain').value;lastHeadVideo=-1;lastVideo=-1;running=true;lastResult=performance.now();$('start').textContent='Stop camera';status('Left hand: joystick · right hand: model');
  }catch(e){stop();status('Camera not started');$('error').textContent=e.name==='NotAllowedError'?'Camera access was declined. Allow camera access in your browser, then retry.':e.message;}
  finally{$('start').disabled=false;}
 }
@@ -80,6 +84,12 @@ document.querySelectorAll('[data-finger]').forEach(button=>button.onclick=()=>{
 $('centerThumb').onclick=()=>{held.reset();status('Show '+fingerMode+' to place circle');};
 $('joystickSize').oninput=()=>{held.setSize(+$('joystickSize').value);$('joystickSizeValue').textContent=Math.round(held.size*100)+'%';};
 $('gain').oninput=()=>held.speed=+$('gain').value;
+const VIEW=['viewFov','phoneFov','handDist','handHeight','handTilt'];
+try{const saved=JSON.parse(localStorage.getItem('move.view')||'{}');for(const id of VIEW)if(saved[id]!=null)$(id).value=saved[id];}catch{}
+function applyView(){camera.fov=+$('viewFov').value;camera.updateProjectionMatrix();handView.phoneFov=+$('phoneFov').value;handView.dist=+$('handDist').value;handView.height=+$('handHeight').value;handView.tilt=+$('handTilt').value;
+ $('viewFovValue').textContent=camera.fov+'°';$('phoneFovValue').textContent=handView.phoneFov+'°';$('handDistValue').textContent=handView.dist.toFixed(2)+' m';$('handHeightValue').textContent=handView.height.toFixed(2)+' m';$('handTiltValue').textContent=handView.tilt+'°';
+ try{localStorage.setItem('move.view',JSON.stringify(Object.fromEntries(VIEW.map(id=>[id,$(id).value]))));}catch{}}
+for(const id of VIEW)$(id).oninput=applyView;applyView();
 $('demo').onclick=()=>{stop();demo=true;demoRun=null;$('demoControls').classList.add('visible');status('Demo · choose a movement below');};
 document.querySelectorAll('[data-look]').forEach(b=>b.onclick=()=>{lookDemo=+b.dataset.look;if(!lookDemo)headLook.speed=0;});
 document.querySelectorAll('[data-demo]').forEach(b=>b.onclick=()=>{swipe.reset();demoRun={direction:b.dataset.demo,start:performance.now()};});
@@ -95,7 +105,7 @@ function frame(now){
  if(inputMode==='touch'&&!document.hidden&&!demo&&!resting){const v=stick.vector,step=bodyDisplacement(v.x*held.speed*Math.min(.05,dt),v.z*held.speed*Math.min(.05,dt),headLook.heading);dustMap.move(camera.position,step.x,step.z);const moving=Math.hypot(v.x,v.z)>.001;status(moving?'WALKING · release to stop':'Thumbstick ready · drag to walk',moving);$('gestureStats').textContent=moving?'Walking '+Math.round(Math.hypot(v.x,v.z)*100)+'%':'Stopped';}
  if(running&&!resting){
   const movement=held.step(now,dt),world=bodyDisplacement(movement.dx,movement.dz,headLook.heading),beforeX=camera.position.x,beforeZ=camera.position.z;dustMap.move(camera.position,world.x,world.z);if(held.direction){walkReason=!dustMap.ready?'MAP LOADING':Math.hypot(camera.position.x-beforeX,camera.position.z-beforeZ)<.00001?'BLOCKED BY MAP':'MOVING';}
-  if(inputMode!=='touch'&&now-lastResult>450){held.receive(null,now);swipe.update(null,now);trackingUI.draw([],$('cam').videoWidth,$('cam').videoHeight,false,{tip:fingerMode==='index'?8:4,centre:held.centre,viewScale:held.scale,scale:held.effectiveScale,reason:held.reason});walkReason='WAITING FOR TRACKING';status(walkReason);}
+  if(inputMode!=='touch'&&now-lastResult>450){held.receive(null,now);swipe.update(null,now);trackingUI.draw([],$('cam').videoWidth,$('cam').videoHeight,false,{tip:fingerMode==='index'?8:4,centre:held.centre,viewScale:held.scale,scale:held.effectiveScale,reason:held.reason});handModel.hide();walkReason='WAITING FOR TRACKING';status(walkReason);}
   const v=$('cam');
   const job=scheduler.next({busy:busy||!!head?.busy,handReady:inputMode!=='touch'&&v.readyState>=2&&v.currentTime!==lastVideo,headReady:!!head?.wantsFrame(now)&&v.readyState>=2&&v.currentTime!==lastHeadVideo});
   if(job==='head'){lastHeadVideo=v.currentTime;head.capture(v,now);}
