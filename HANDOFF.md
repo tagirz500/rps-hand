@@ -848,3 +848,236 @@ move him forward/back or turn reliably. Next: rebuild navigation on this base wi
   (first-person footprint vs video landmarks), `probe_chir.py`. The workflow `hand-pose-verify` (8 pose judges) found:
   crossed1 fingers interpenetrating, loose fists, raised_fist thumb gap, woman_open depth-flipped (open flat hand: the
   thumb-side chirality sign is ambiguous, still open).
+## 28. Build 27: multiplayer, matchmaking, PC link (2026-09-10, night, on top of the d14life fork's build 26)
+
+Owner: "add multiplayer with matchmaking; add a Connect-PC option: the phone logs in with a simple 6-digit
+token, the PC hosts and shows only the 3D hands while the phone shows the camera with tracking; do I need a
+server or can it run from my PC?"
+
+**Answer to the server question.** The hand streams (~1 KB per tracker frame, 30 fps) go phone-to-phone over
+WebRTC data channels; nothing relays them. The only server needed is a signalling broker to introduce two
+browsers, and PeerJS's free public broker (0.peerjs.com) does that, so NOTHING runs on the owner's PC and the
+site stays a static GitHub Page. A free public TURN relay (openrelay.metered.ca) is configured for strict
+mobile NATs. Matchmaking also needs no backend: lobby slots are PeerJS ids `rpsh-lobby-1..6`; the first player
+to claim a free id waits there, the next finds it taken, dials it, they exchange codes and continue over their
+own ids; the slot is freed 1.5 s later. Limits: the public broker is best-effort (if it is down, ONLINE fails;
+a self-hosted PeerServer or any WebSocket relay is a 20-line replacement), and two players who claim the same
+slot within the same ~200 ms race (one of them retries the next slot).
+
+**Code = account.** `myCode()` makes a 6-digit code once per browser (localStorage `rpsh_code`); the player's
+PeerJS id is `rpsh-<code>`. There is no login and no server-side account; the code is the identity.
+
+**Roles.** `docs/net.mjs` (`createNet`): player (phone: tracks and streams `{t:"h", who:"me", hands:[{n, a:[63
+floats, mm precision], m}], m, ts}` after every tracker result to the opponent and to the screen; forwards the
+opponent's packets to the screen as `who:"opp"`) and screen (`?screen=<code>`, PC: no camera, `body.screen`
+hides the video pane, renders "me" hands as-is and "opp" hands mirrored, first person). The PC LINK button on a
+phone shows its code; on a PC (no touch) it prompts for a code and reloads into `?screen=`.
+
+**Opponent placement.** Their points arrive in their own levelled camera frame; in my room their phone plane is
+the far side of the table, so x -> -x, z -> -z (`drawRemote`). The skin picks its handedness from the geometry,
+so a mirrored right hand still reads as a right hand. Remote hands vanish 600 ms after the last packet.
+
+**Rounds.** Either player taps PLAY -> `{a:"start"}`; both count 3 s locally (the guest starts one network hop
+later, ~50-100 ms); at the end each sends `{a:"move", m}` (`"NONE"` when no hand was in view); the result and
+score are computed on each side from (my, their); a 4 s timeout covers a lost message. The player mirrors its
+HUD lines to the screen with `{a:"hud"}` (screen only, never to the opponent: an early build leaked them).
+
+**Verified** (`web_net_test.py`, three separate browser contexts in headless Edge through the real PeerJS
+broker): A and B match as host/guest via the lobby, a screen links to A by code, a round played from A gives
+consistent results on all three pages ("YOU SCISSORS beats PAPER - YOU WIN" / "... YOU LOSE" / screen shows
+A's line) and matching scores; a second round with no hand in view resolves as NO RESULT; no console errors.
+
+Not done: physics props are not synchronised (the fork removed them anyway); no reconnection after a dropped
+peer (tap ONLINE again); the screen only shows hands while the phone page is open.
+
+### 27b. Build 28: PC LINK works without a camera (2026-09-10, night)
+
+Owner on a PC with no camera: "pressing PC LINK does nothing". Cause: `main()` returned at the camera failure
+before the buttons were wired. Now `#link` is wired at module level (one prompt on every device: shows this
+device's code, and a typed 6-digit code reloads the page as `?screen=<code>`), and the no-camera status text
+explains exactly that. `web_link_test.py` proves it: a camera-less page links to a phone page by code and the
+phone reports "PC linked".
+
+### 27c. Builds 29-30: link order independence, 3-digit codes (2026-09-10, night)
+
+Owner's PC showed "link failed: peer-unavailable" with the right code: the phone was not registered at the broker
+at that moment (its peer only started after the tracker + mesh loaded; iOS drops the broker socket when the
+screen locks; a previous load can hold the id for up to a minute). Build 29: the phone registers its code the
+moment the page opens; `unavailable-id` and network errors retry every 3 s; `disconnected` reconnects; a screen
+Wake Lock is requested once online and on return to the foreground; the PC side keeps dialling every 3 s on
+`peer-unavailable` ("waiting for phone <code>… open the page on the phone and keep it awake") and re-dials
+when the connection closes. Build 30: codes are 3 digits (`CODE_LEN` in net.mjs, localStorage `rpsh_code3`);
+the PC prompt accepts 3-6 digits. `web_link_order_test.py`: PC enters the code before the phone page exists,
+links 2.8 s after the phone opens, survives a phone reload.
+
+## 29. Builds 31-33: start screen, lobbies, screen pairing by QR, face to face (2026-09-10, late night)
+
+Owner: "test the PC link; then matchmaking with lobbies (open lobby list anyone can join) and normal quick
+match; for the test put one person in front of the other, 1 m apart, facing each other, I see my hands and
+theirs"; then "three buttons: track my hand / screen (3D view) / both"; then "the PC screen should give a QR
+code and a 3-digit number".
+
+- **Start screen** (`#start`, shown when the URL has no role): TRACK MY HAND (`?role=track`: camera + tracking,
+  no 3D render, the 3D pane shrinks to a 150 px strip for the buttons), SCREEN (`?screen`: no camera, shows
+  its code + QR, renders what the linked phone sends), BOTH (`?role=both`: the classic split page). Test URLs
+  (`?img`, `?video`, `?pair`) skip the start screen. CSS `[hidden] { display:none !important }` was needed:
+  `#start { display:grid }` had overridden the hidden attribute and the invisible overlay ate every tap.
+- **Pairing, reversed.** The SCREEN registers `rpsh-s-<screen code>` (`screenCode()`, localStorage
+  `rpsh_screen3`, regenerated if taken) and shows the code + a QR of `?pair=<code>` (qrcodejs from cdnjs) in
+  the `#pair` overlay until a phone links. The PHONE dials it: from the QR (`?pair=`), or PC LINK -> prompt
+  for the screen's code; `net.linkScreen(sc)` re-dials every 4 s until the screen answers and re-dials if it
+  drops; `rpsh_last_screen` pre-fills the prompt. One phone per screen. The old direction (PC types the
+  phone's code) is gone.
+- **Lobbies without a backend** (`net.mjs`): a host claims `rpsh-room-<k>` (first free of 8); anyone lists
+  open rooms by probing all 8 ids (connect + `{t:"probe"}`, answered with `{t:"room", k, host, open}` within
+  2.5 s) and joins with `{t:"join", code}`; the host dials the joiner's player id, both continue over player
+  ids, the room id is freed. QUICK MATCH = join the first open room, else create one and wait. The ONLINE
+  button opens the `#lobby` panel (QUICK MATCH / CREATE LOBBY / REFRESH / CLOSE + the list with JOIN buttons).
+- **Face to face**: first-person eye at `eyeZ` = min(-0.5, 0.25 m behind my nearest hand) (smoothed), looking
+  at (0, -0.2, 0.5), FOV 80; the opponent's hands are mirrored beyond the phone plane, so with hands ~0.3 m
+  from each phone the players' eyes are ~1 m apart and both pairs of hands are in view (my near hands are
+  large; hands held at face height can occlude the far hand).
+- **Verified** (`web_lobby_test.py`, `web_link_test.py`, headless Edge, real broker): the start screen and its
+  three buttons; A creates lobby 1, B sees "Lobby 1 - host <code>" and JOINs -> host/guest; C quick-matches
+  into a fresh lobby 1, D quick-matches and joins C; in first person A draws B's hand and B draws both of A's
+  (`window.dbgRemote` hook). Screen shows code + QR + URL; a phone opened from the QR link goes track-only and
+  links; the screen draws `me:Right`; phone reload -> screen re-links; phone dialling a closed screen waits and
+  links when the screen returns. Live-site runs of the earlier PC-link flow also passed before the reversal.
+- Known: a second tab of the same phone waits on "code still registered" (one phone tab at a time); the lobby
+  list costs 8 probes per refresh; rooms are global across everyone using the public broker with this id
+  scheme (fine for now, prefix the ids if that ever matters).
+
+### 28b. Build 34: per-tab phone codes, no reconnect loop (2026-09-10, night)
+
+Owner: phone stuck on "reconnecting…", screen "waiting for a phone". Cause: the phone page was already open and the
+screen's QR opened a second tab; both tabs claimed the same (localStorage) phone code, the broker rejected the second
+with `unavailable-id`, and the `disconnected` handler kept calling `reconnect()` on the rejected peer. Fixes: the phone
+code is per TAB (sessionStorage) and a taken code is replaced at once (`myCode(true)`); `p.dead` stops the reconnect
+handler once the error handler has given up on a peer; a reloaded SCREEN waits out its own stale registration (up to
+60 s, showing "busy… retrying") so its QR/number stay valid; TURN over TCP 443 added. `web_tabs_test.py` reproduces the
+two-tab scenario and the screen reload.
+
+### 28c. Build 35: the screen opens as a mirror (2026-09-10, night)
+
+Owner: "DO MIRROR". The SCREEN now starts in mirror view (VIEW toggles to first person for matches). The phone adds
+its levelled pitch and camera frame size to every hands packet (`p`, `fw`, `fh`); the screen applies them so its
+mirror camera looks where the phone looks and uses the phone's cover-crop FOV, i.e. the same picture as the phone's
+own mirror mode. In mirror view the opponent (beyond the phone plane) is behind the camera and not visible.
+
+### 28d. Build 36: mirror = the whole camera frame, one to one (2026-09-10, night)
+
+Owner: "the mirror camera has to be at the same distance as the actual camera, one to one"; first person is fine.
+Mirror view now renders the camera's entire frame with the camera's own vertical FOV, letterboxed into the pane
+(`renderer.setViewport/setScissor`, black bars when the pane's shape differs), instead of the old cover crop that
+fitted the frame's width to a wide PC window and enlarged the hand. The video pane switches to `object-fit: contain`
+in mirror view (`body.mirror`) so video, overlay and 3D mirror all show the same full frame. Because rendering uses
+the same assumed FOV as the back-projection, image positions reproduce exactly whatever the true FOV is (phone
+mirror reproj 0.12 %).
+
+## 30. Builds 37-38: revolver, targets, Spider-Man webs (2026-09-11, early hours)
+
+Owner: "a revolver on the table; pick it up and shoot, infinite shots, targets in front of me, first person, no mode,
+it should just respond"; then "when I do the classic Spider-Man move, shoot webs at the targets" (photo: index + pinky
+out, middle + ring folded, web from the wrist).
+
+- **Revolver** (`makeRevolver`, procedural: barrel along +z, grip -y, muzzle at (0, 0.03, 0.15)) lies on the table at
+  `GUN_HOME` (0.2, table, -0.3). `gunUpdate(now, hands)` runs every frame on the player's own drawn hands (and on the
+  screen on the hands it receives): a gripping hand (middle, ring, pinky curled) within 14 cm picks it up; the barrel
+  follows wrist -> middle knuckle, index side up (`makeBasis`); the trigger is the index finger going from extended to
+  curled (150 ms min gap) = hitscan from the muzzle (`THREE.Raycaster`) + tracer line + muzzle flash; a fully open hand
+  drops it (back to table height); a vanished hand drops it.
+- **Targets**: 5 bullseye discs (canvas ring texture on cylinder caps) on posts at z 1.2-1.55, x -0.6..0.6, centre
+  ~chest height; a hit rotates the pivot to -90° and it stands back up after 2 s. HUD line `#gun`: SHOTS / WEBS / HITS.
+- **Webs**: pose = `ext` [index, middle, ring, pinky] = [1,0,0,1]; on entering the pose (400 ms cooldown) a strand leaves
+  the palm along the palm normal, sign chosen so it points toward +z (the side facing the phone = toward the targets),
+  hitscan like a bullet (`shootRay`), the strand grows out over 120 ms, stays attached to the moving palm, fades after
+  1.1-1.4 s. `gunDbg.update(hands)` drives the logic with synthetic points for tests.
+- Verified (`web_gun_test.py` + a synthetic-pose probe): fist picks up / follows; 5 forced shots = 5 hits, all fall,
+  all stand up; open hands do not pick up; synthetic web pose fires once, no re-fire while held, fires again after
+  relaxing; the PC screen picks the revolver up from the received hand. MediaPipe does not detect the red Spider-Man
+  glove in the owner's photo (gloves/masks defeat the palm detector), so the pose path was proven synthetically.
+
+### 29b. Build 39: first person pulled back, revolver in front, webs aim where the hand points (2026-09-11)
+
+Owner (with phone screenshots): first person far too close (table and revolver under the chin); revolver should sit to
+the side in front; webs must fire where the hand points (his three photos: pose seen from the front / side / fingers
+toward the phone), not along the palm. Changes: eye at (0, 0.35, min(-0.7, 0.55 m behind the nearest hand)) looking at
+(0, -0.1, 0.6), FOV 75; `GUN_HOME` (0.3, table, -0.35); web origin = wrist, direction = wrist -> middle knuckle;
+aim assist in `shootRay` (nearest target within 12°, webs 15°) so pointing roughly at a target hits. Verified: gun test
+green; synthetic pose with fingers toward the phone hits a target, fingers up fires but misses.
+
+### 29c. Builds 40-41: revolver at the player's right with a marker ring, CAM sliders (2026-09-11)
+
+Owner: "where is the gun?" - it was at +x, which in first person (looking toward +z) is the player's LEFT, at the
+edge of the view under the HUD. Now `GUN_HOME` = (-0.22, table, -0.3) (the player's right, where the right hand
+tracks), a pulsing yellow ring marks the spot (hidden while held), a dropped revolver returns to the ring after 3 s,
+HUD says "at your right (yellow ring)". Owner: "make a FOV slider because you keep getting it wrong" - CAM button
+(left, under VIEW) opens a panel with FOV / HEIGHT (eye above the phone axis) / BACK (eye behind the nearest hand) /
+TILT (look-at height) sliders; values live in `CAM`, saved in localStorage `rpsh_cam`, applied through `applyView`.
+Gotcha: a button with id `cam` collided with `<video id="cam">`, so the button is `camBtn`. Verified: sliders
+change `camera.fov`/position live and survive a reload.
+
+## 31. Build 42: the brother's Dust II movement build inside our site, phone as camera (2026-09-11)
+
+Owner: take his Dust II movement page (d14life fork, movement v54), add a phone-as-camera link by QR, push it to HIS
+repo, and merge it into ours too. Done three ways:
+- Branch `phone-camera` (on the fork's head) with `docs/movement/camlink.mjs` + `camera.html` + small `app.mjs` /
+  `index.html` edits: PR https://github.com/d14life/rps-hand/pull/1 (I cannot push to d14life; he merges).
+- Hosted from that branch as a second site: https://tagirz500.github.io/rps-map/movement/?cam
+- Merged into our main as `docs/movement/` (+ his newer `docs/head/`, `docs/world/`); our `index.html` untouched apart from
+  a MAP button on the start screen -> `movement/?cam`. Live: https://tagirz500.github.io/rps-hand/movement/?cam
+How it works: the PC page registers `rpsh-cam-<3 digits>` at the PeerJS broker, shows code + QR of
+`camera.html?cam=<code>`; the phone page opens its front camera and CALLS the PC (WebRTC media); the PC uses the
+MediaStream as its webcam, so his hand tracker, thumb joystick and head look run on the PC GPU. ~100-200 ms extra
+latency vs tracking on the phone. Tested with Edge's fake camera fed from `rps_cam.mjpeg` (scratch; make with
+ffmpeg from docs/test/rps.webm): code + QR, phone "streaming", PC video 640x480, tracker 19-51 ms, no errors.
+
+### 30b. Build 44: ids released on tab close, fresh code when taken, patient screen link (2026-09-11)
+
+Owner: "issues with the connection to the SCREEN option, Dust II works"; then a screenshot of the map page stuck on
+"code 580 busy (an older page still holds it), retrying" after closing and reopening the tab. Fixes in both
+`docs/net.mjs` and `docs/movement/camlink.mjs`: `pagehide` destroys the peer so the broker frees the id at once; an
+`unavailable-id` takes a fresh random code immediately (the phone reads the number off the PC anyway) instead of
+waiting up to 60 s. The phone's screen link now gives negotiation 15 s (was 4 s, which hung up on slow relay
+paths), shows the ICE state in the readout, and only redials on a real failure. Verified: close + reopen shows a
+code in 0.4 s (same number); pairing test green.
+
+## 32. Build 45: head tracking + the owner's mask, CAM FOV slider, revolver on a stand, movement v58 (2026-09-11)
+
+Owner (with `face-mask.zip`): "add head tracking and draw it at the same time so I can see and use this mask as well as
+the hands; I want to check the head tracking in the mirror". Then: "no FOV slider, no face tracking, no mask, the gun is
+way too far away", and "pull the latest Dust II with the newer tracking".
+
+- **Head**: a second worker runs MediaPipe FaceLandmarker (float16 task, 13.8 MB, GPU then CPU) on every other tracker
+  frame, in parallel with the hands (`makeFaceTracker`, `FACE_WORKER_SRC`). It returns the 478 image landmarks (drawn
+  as orange contours on the video overlay) and the facial transformation matrix: column-major 4x4, translation in cm,
+  x right / y up / z toward the camera = our GL frame, so `placeFace` just scales by 0.01 and copies rotation. The
+  head is `faceGroup` under `worldGroup` (mirrors with the hands): Google's `canonical_face_model.obj` (468 v, cm) as a
+  green wire mesh + `docs/mask/Mask.obj` (from the zip, 3736 v, 0.247 wide in file units) scaled to 16 cm wide,
+  centred, pushed 4 cm forward so it sits on the face. Tuning: `?maskscale=1.1 ?maskoff=x,y,z ?maskrot=rx,ry,rz`.
+  Mirror view only (`faceGroup.visible = seen < 0.7 s ago && mirror`): in first person the eye IS the head. The phone
+  sends the matrix to the PC screen (`{t:"g", a:"face", m:[16]}`), which places the same head. HUD stats show
+  `head on / no face / loading`. Hooks: `window.faceDbg` (matrix, visible, lm, group), `window.maskDbg`.
+- **CAM FOV slider** (top of the CAM panel): sets `HFOV` (now `let`) = the phone camera's real horizontal field of
+  view, which drives both the depth solve and the mirror view's projection; saved as `rpsh_hfov` (`?fov=` still wins).
+  The phone sends it as `hf` in the hands packet; the screen adopts it when it changes, while the screen's own slider
+  still works locally. The other four sliders stay first-person only.
+- **Revolver on a stand**: `GUN_HOME` is now (-0.12, table + 0.16 + 0.025, -0.45): a post with a wooden top at hand
+  height, at the depth hands usually are, inside the mirror frame (before: on the table at x -0.22, z -0.3 - outside
+  the 60 deg mirror frame, so the owner never saw it). Drops still land on the table under the hand; auto-return to the
+  stand after 3 s. The PC screen's first-person eye now follows the phone's hands too (`followEye`, shared).
+- **Movement v58**: the brother's Dust II build pulled (fork commits db0b6c5..f170136: face orientation tracked directly,
+  360 head control, merged BVH collisions, larger thumb range). Branch `phone-camera` rebased on it (camlink import
+  and script tags re-applied; `?v=58` everywhere), force-pushed -> PR d14life/rps-hand#1 updated; rps-map main
+  updated; `docs/movement/` in our main = the same files. His 67 unit tests pass on the merged tree.
+- Test: `web_face_test.py` - face on `test/robbie_v.jpg` (head 0.55 m, 478 landmarks, mask loaded, scale 0.647) and
+  `test/seated_desk.jpg` (head 1.27 m with both hands tracked); `peace.jpg` correctly reports no face; first person
+  hides the head, mirror shows it; the screen receives the head over the broker; renders `face_front/side/three_quarter.png`
+  checked by eye (mask on the face, wire face behind it). No page errors.
+- Regression (same PC, headless Edge, build 45): gun test green (pickup, 5/5 hits, recovery, open hand ignored, screen
+  pickup); hard test stills 5/9, clips wave/counting/cleanhands/handwash 30 fps, gesture67 27, handclap 15, rps 12 (the
+  last two run out of hands, as before). A/B on the fast clips with `?face=0`: face ON vs OFF - wave 30/30 fps,
+  gesture67 28/28, handclap 15/15; tracker 21-26 ms vs 16-21 ms; reproj/lag/jumps equal within noise (gesture67 reproj
+  1.23 vs 1.37 %, handclap 1.16 vs 1.88 %). The head worker costs ~5 ms of tracker time and no hand quality here.
+- Live: https://tagirz500.github.io/rps-hand/ served build 45 ~2 min after the push; `web_face_test.py` against the
+  live site: same numbers, screen relay OK, no errors.

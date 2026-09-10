@@ -5,13 +5,17 @@ Continue the RPS Hand project. Repo: https://github.com/tagirz500/rps-hand (on T
 C:\Users\tagir\Downloads\rps_hand, already a git checkout of that repo).
 
 Read HANDOFF.md completely before doing anything - it is the full history, design, gotchas, test harness,
-metrics and the contract for the hand mesh. Sections 19-20 describe the current state (build 13) and the
-open tuning problems. Then:
+metrics and the contract for the hand mesh. Sections 19-28 describe the current state (build 33: mesh hands from the d14life fork + multiplayer, lobbies, screen
+pairing by QR, three-way start screen) and the open problems; §27-28 are the networking design. Then:
 
 1. Run the test harness to get a baseline before changing anything:
      python -m http.server 8765 --directory docs      (in one terminal)
      python fetch_test_media.py                        (once; downloads the Commons test photos/clips into docs/test)
      python web_hard_test.py 18 all                    (needs the system Microsoft Edge; ~7 min)
+     python web_lobby_test.py                          (lobbies + quick match, 4 players, first-person opponent hands)
+     python web_link_test.py                           (screen pairing by code/QR, reloads, order independence)
+     python web_gun_test.py                            (revolver on its stand, targets, webs, screen role)
+     python web_face_test.py                           (head tracking + mask on photos, first person hides it, screen relay; face_*.png renders)
    Numbers only compare between runs on the SAME PC (tracker fps differs per GPU), and the rps clip starts
    at a random point per run.
 2. Work on mechanics (tracking precision, stability with two hands, height/depth, latency) and on the
