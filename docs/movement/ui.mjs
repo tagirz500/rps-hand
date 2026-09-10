@@ -19,7 +19,7 @@ export function setupUI(){
   box.style.aspectRatio='4/3';$('cam').style.visibility=hands?.length||joystick?.centre?'visible':'hidden';const zoom=box.clientWidth/crop.width;
   for(const el of [$('cam'),canvas]){el.style.width=w*zoom+'px';el.style.height=h*zoom+'px';el.style.left=-crop.x*zoom+'px';el.style.top=-crop.y*zoom+'px';}
   const speed=Math.hypot(joystick?.x||0,joystick?.z||0);
-  $('handZoomState').textContent=!joystick?.centre?'Show resting fist':joystick.active?(speed>1.01?'BOOST ':'MOVE ')+Math.round(speed*100)+'%':joystick.reason?.includes('TRACKING')||!hands?.length?'Show hand to resume':'Centre / fist = stop';
+  $('handZoomState').textContent=!joystick?.centre?'Show thumb':joystick.active?(speed>1.01?'BOOST ':'MOVE ')+Math.round(speed*100)+'%':joystick.reason==='RETURN THUMB TO CENTRE'?'Thumb to green centre':joystick.reason?.includes('TRACKING')||!hands?.length?'Show hand to resume':'Centre / fist = stop';
  };
 
  const edges=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
@@ -48,7 +48,7 @@ export function drawThumbJoystick(ctx,hand,w,h,joystick){
  ctx.textAlign='center';ctx.textBaseline='middle';ctx.lineJoin='round';
  const label=(text,x,y)=>{ctx.lineWidth=5;ctx.strokeStyle='#07131fee';ctx.strokeText(text,x,y);ctx.fillStyle='#ffffff';ctx.fillText(text,x,y);};
  if(!centre||!Number.isFinite(scale)){
-  label('HOLD RESTING FIST TO SET CENTRE',w/2,h-24);ctx.restore();return;
+  label('SHOW THUMB',w/2,h-24);ctx.restore();return;
  }
  const unit=scale*w,cx=centre[0]*w,cy=centre[1]*w;
  const r=.5*unit,dead=(active?.14:.20)*unit;
@@ -74,8 +74,8 @@ export function drawThumbJoystick(ctx,hand,w,h,joystick){
  label('↑',cx,cy-.66*unit);label('↓',cx,cy+.66*unit);
  label('←',cx-.66*unit,cy);label('→',cx+.66*unit,cy);
  const direction=[vz<-.05?'FORWARD':vz>.05?'BACK':'',vx<-.05?'LEFT':vx>.05?'RIGHT':''].filter(Boolean).join(' ');
- const waiting=!hand||reason==='SHOW FIST TO RESUME'||reason==='TRACKING LOST';
- label(active?`${speed>1.01?'BOOST · ':''}${direction} ${Math.round(speed*100)}%`:waiting?'SHOW FIST TO RESUME':reason?.includes('FIST')?'FIST REST':'CENTRE = STOP',w/2,20);
+ const waiting=!hand||reason==='RETURN THUMB TO CENTRE'||reason==='TRACKING LOST';
+ label(active?`${speed>1.01?'BOOST · ':''}${direction} ${Math.round(speed*100)}%`:waiting?'RETURN THUMB TO CENTRE':reason?.includes('FIST')?'FIST REST':'CENTRE = STOP',w/2,20);
  const barWidth=w*.24,bx=(w-barWidth)/2;
  ctx.fillStyle='#08151dcc';ctx.fillRect(bx,36,barWidth,7);
  ctx.fillStyle=active?'#ffdb68':'#6dffb3';ctx.fillRect(bx,36,barWidth*Math.min(1,speed/1.6),7);

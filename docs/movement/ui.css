@@ -6,3 +6,5 @@ header{text-shadow:0 1px 4px #000,0 0 12px #0008}#position{color:#fff}
 #preview{width:min(230px,38vw)}#previewImage{overflow:hidden;aspect-ratio:4/3}#handZoomState{position:absolute;top:8px;left:8px;right:8px;z-index:2;pointer-events:none;text-align:center;font:bold 13px sans-serif;color:#fff;text-shadow:0 1px 4px #000;background:#0c1c27b8;border-radius:6px;padding:6px}#previewNote{z-index:3;background:#182832}#preview .draghandle{font-size:12px}@media(max-width:600px){#preview{width:min(190px,48vw);right:12px;top:102px}}
 
 #handZoomState{top:auto;bottom:3px;left:3px;right:3px;font-size:10px;padding:3px}#preview .draghandle{font-size:10px}#trackingLegend{display:none}
+
+#panel{backdrop-filter:none}

@@ -1,3 +1,5 @@
+import {computeBoundsTree,acceleratedRaycast} from 'https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.9.15/build/index.module.js';
+import {mergeGeometries} from 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/utils/BufferGeometryUtils.js';
 import * as THREE from 'three';
 import {OBJLoader} from 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/OBJLoader.js';
 import {MTLLoader} from 'https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/MTLLoader.js';
@@ -9,6 +11,10 @@ export class DustMap {
   const obj=await new OBJLoader().setMaterials(materials).setPath(base).loadAsync('de_dust2.obj');
   obj.rotation.x=-Math.PI/2;obj.scale.setScalar(.0254);this.scene.add(obj);obj.updateMatrixWorld(true);
   obj.traverse(m=>{if(m.isMesh){m.geometry.computeBoundingBox();const many=Array.isArray(m.material),mats=many?m.material:[m.material];const basic=mats.map(old=>new THREE.MeshBasicMaterial({map:old.map,color:old.color,side:THREE.DoubleSide}));m.material=many?basic:basic[0];this.meshes.push(m);}});
+  // Collision uses one position-only mesh, without thousands of material groups.
+  const parts=this.meshes.map(m=>{const g=new THREE.BufferGeometry();g.setAttribute('position',m.geometry.getAttribute('position').clone());if(m.geometry.index)g.setIndex(m.geometry.index.clone());g.applyMatrix4(m.matrixWorld);return g;});
+  const geometry=mergeGeometries(parts,false);for(const p of parts)p.dispose();computeBoundsTree.call(geometry);
+  const collision=new THREE.Mesh(geometry,new THREE.MeshBasicMaterial({side:THREE.DoubleSide}));collision.raycast=acceleratedRaycast;collision.updateMatrixWorld(true);this.meshes=[collision];
   for(const [x,z] of [[-38,20],[-30,20],[-20,20],[0,0],[-10,-20]]){const y=this.floor(x,z,12);if(y!==null){this.spawn.set(x,y+this.eye,z);this.ready=true;return;}}
   throw Error('No walkable spawn found');
  }

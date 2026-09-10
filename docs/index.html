@@ -60,7 +60,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 44)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 45)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -69,11 +69,12 @@
     <button id="view">VIEW</button>
     <button id="camBtn">CAM</button>
     <div id="camp" hidden>
+      <label>CAM FOV <input id="cHfov" type="range" min="40" max="110" step="1"><span id="vHfov"></span></label>
       <label>FOV <input id="cFov" type="range" min="40" max="110" step="1"><span id="vFov"></span></label>
       <label>HEIGHT <input id="cHeight" type="range" min="0" max="0.7" step="0.01"><span id="vHeight"></span></label>
       <label>BACK <input id="cBack" type="range" min="0.1" max="1.5" step="0.01"><span id="vBack"></span></label>
       <label>TILT <input id="cTilt" type="range" min="-0.8" max="0.5" step="0.01"><span id="vTilt"></span></label>
-      <div style="color:#9aa4b8">first person only; saved on this device</div>
+      <div style="color:#9aa4b8">CAM FOV = the phone camera's real field of view (mirror view + depth). FOV, HEIGHT, BACK, TILT = first person. Saved on this device</div>
     </div>
     <button id="mode">MODE: predict</button>
     <button id="online">ONLINE</button>
@@ -95,13 +96,15 @@ import * as THREE from "three";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
+import { OBJLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/OBJLoader.js";
 
-const BUILD = 44;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 45;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
 // it; only the absolute depth scale does, so a wrong guess still gives one-for-one relative motion.
-const HFOV = (+Q.get("fov") || 60) * Math.PI / 180;
+let HFOV = (+Q.get("fov") || 60) * Math.PI / 180;   // adjustable with the CAM FOV slider (saved on the device)
+try { if (!Q.get("fov") && localStorage.getItem("rpsh_hfov")) HFOV = +localStorage.getItem("rpsh_hfov") * Math.PI / 180; } catch {}
 const FLOOR_Y = +Q.get("floor") || -0.28;   // metres below the camera; the table the objects rest on (?floor=-0.2 to raise it)
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.0.1";
 const MODEL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task";
@@ -418,6 +421,63 @@ async function makeTracker() {
   }
 }
 
+// --- head tracking: MediaPipe Face Landmarker in its own worker; its facial transformation matrix (metric, cm,
+// y up, z toward the camera = our GL frame) places Google's canonical face mesh (the tracked head, drawn as a wire
+// mesh) and the owner's mask on it. Runs every other tracker frame to spare the phone GPU. Mirror view only: in first
+// person the eye IS the head, so the mask would block the view. ------------------------------------------------------
+const FACE_MODEL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task";
+const FACE_WORKER_SRC = `
+import { FilesetResolver, FaceLandmarker } from "${MP}/vision_bundle.mjs";
+let lm;
+onmessage = async e => {
+  if (e.data.init) {
+    const vision = await FilesetResolver.forVisionTasks("${MP}/wasm", true);
+    for (const delegate of e.data.delegates) {
+      try { lm = await FaceLandmarker.createFromOptions(vision, { baseOptions: { modelAssetPath: ${JSON.stringify(FACE_MODEL)}, delegate }, runningMode: "VIDEO", numFaces: 1, outputFacialTransformationMatrixes: true, outputFaceBlendshapes: false });
+        postMessage({ ready: true, delegate, contours: FaceLandmarker.FACE_LANDMARKS_CONTOURS.map(c => [c.start, c.end]) }); return; }
+      catch (err) { console.warn(delegate + " face failed", err); }
+    }
+    postMessage({ ready: false }); return;
+  }
+  const t = performance.now(), r = lm.detectForVideo(e.data.frame, e.data.ts); e.data.frame.close();
+  const f = r.faceLandmarks[0], m = r.facialTransformationMatrixes[0];
+  postMessage({ id: e.data.id, ms: performance.now() - t, face: f ? { lm: f.map(p => [Math.round(p.x * 1e4) / 1e4, Math.round(p.y * 1e4) / 1e4]), m: m ? Array.from(m.data) : null } : null });
+};`;
+async function makeFaceTracker() {
+  const w = new Worker(URL.createObjectURL(new Blob([FACE_WORKER_SRC], { type: "text/javascript" })), { type: "module" });
+  const ready = await new Promise((res, rej) => { w.onmessage = e => res(e.data); w.onerror = e => rej(e.message || "face worker error"); w.postMessage({ init: true, delegates: DELEGATES }); setTimeout(() => rej("face init timeout"), 60000); });
+  if (!ready.ready) throw new Error("face tracker failed");
+  const waiting = new Map(); let id = 0;
+  w.onmessage = e => { waiting.get(e.data.id)?.(e.data); waiting.delete(e.data.id); };
+  return { where: ready.delegate, contours: ready.contours, async detect(src, ts) { const frame = await createImageBitmap(src); return new Promise(res => { const my = ++id; waiting.set(my, res); w.postMessage({ id: my, frame, ts }, [frame]); }); } };
+}
+const faceGroup = new THREE.Group(); faceGroup.visible = false;   // placed by the face matrix (cm -> m)
+const MASK_FIT = { scale: +Q.get("maskscale") || 1, x: 0, y: 0, z: 4, rx: 0, ry: 0, rz: 0 };   // ?maskscale=1.1 ?maskoff=x,y,z (cm, default 4 cm forward so it sits on the face) ?maskrot=rx,ry,rz (deg)
+if (Q.get("maskoff")) [MASK_FIT.x, MASK_FIT.y, MASK_FIT.z] = Q.get("maskoff").split(",").map(Number);
+if (Q.get("maskrot")) [MASK_FIT.rx, MASK_FIT.ry, MASK_FIT.rz] = Q.get("maskrot").split(",").map(Number);
+let faceMatrix = null, faceSeen = -1e9, faceLm = null, faceContours = null;
+window.faceDbg = { get matrix() { return faceMatrix; }, get visible() { return faceGroup.visible; }, get lm() { return faceLm; }, group: faceGroup };
+function placeFace(m16) {   // MediaPipe matrix: column-major 4x4, translation in cm
+  const m = new THREE.Matrix4().fromArray(m16);
+  faceGroup.position.setFromMatrixPosition(m).multiplyScalar(0.01); faceGroup.quaternion.setFromRotationMatrix(m);
+}
+async function loadFaceAssets() {   // the canonical face (wire) and the owner's mask, both in the face frame (cm)
+  const loader = new OBJLoader();
+  const face = await loader.loadAsync("mask/canonical_face_model.obj");
+  face.traverse(o => { if (o.isMesh) o.material = new THREE.MeshBasicMaterial({ color: 0x78ff78, wireframe: true, transparent: true, opacity: 0.35 }); });
+  face.scale.setScalar(0.01); faceGroup.add(face);
+  try {
+    const mask = await loader.loadAsync("mask/Mask.obj");
+    const box = new THREE.Box3().setFromObject(mask), size = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
+    const sc = 0.16 / Math.max(size.x, 1e-6) * MASK_FIT.scale;   // fit the mask to a ~16 cm wide face
+    mask.traverse(o => { if (o.isMesh) { o.material = new THREE.MeshStandardMaterial({ color: 0xd9d2c5, roughness: 0.6, metalness: 0.05 }); o.castShadow = true; } });
+    const holder = new THREE.Group(); holder.add(mask); mask.position.copy(ctr).multiplyScalar(-1);   // centred on the head
+    holder.scale.setScalar(sc); holder.position.set(MASK_FIT.x * 0.01, MASK_FIT.y * 0.01, MASK_FIT.z * 0.01);
+    holder.rotation.set(MASK_FIT.rx * Math.PI / 180, MASK_FIT.ry * Math.PI / 180, MASK_FIT.rz * Math.PI / 180);
+    faceGroup.add(holder); window.maskDbg = { holder, size: size.toArray(), scale: sc };
+  } catch (e) { console.warn("mask not loaded", e); }
+}
+
 // --- scene: a room seen from where the phone camera is ------------------------------------------
 const canvas = $("gl");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -432,18 +492,22 @@ scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnviron
 // "mirror": the camera sits where the phone camera is and the render is mirrored, so it behaves like a mirror.
 const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 8);
 const worldGroup = new THREE.Group(); scene.add(worldGroup);   // everything that must mirror in the selfie view
+worldGroup.add(faceGroup); loadFaceAssets();
 let frameW = 640, frameH = 480;   // camera frame size, set once the video is known
 let eyeZ = -0.5;   // first-person eye position, follows my hands so they stay in view (updated in the loop)
+function followEye(ptsList) { let zMin = 0; for (const p of ptsList) zMin = Math.min(zMin, palmCentre(p).z); const target = Math.min(-(CAM.back + 0.15), zMin - CAM.back); eyeZ += 0.08 * (target - eyeZ); }   // ptsList: [[21 Vector3]]
 // first-person camera settings, adjustable with the CAM sliders and kept on the device
 const CAM = { fov: 75, height: 0.35, back: 0.55, tilt: -0.15 };
 try { Object.assign(CAM, JSON.parse(localStorage.getItem("rpsh_cam") || "{}")); } catch {}
 function camUI() {
   for (const [k, id] of [["fov", "Fov"], ["height", "Height"], ["back", "Back"], ["tilt", "Tilt"]]) {
     const inp = $("c" + id); inp.value = CAM[k]; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : (+CAM[k]).toFixed(2) + " m";
+    $("cHfov").value = Math.round(HFOV * 180 / Math.PI); $("vHfov").textContent = Math.round(HFOV * 180 / Math.PI) + "°";
     inp.oninput = () => { CAM[k] = +inp.value; $("v" + id).textContent = k === "fov" ? CAM[k] + "°" : CAM[k].toFixed(2) + " m"; try { localStorage.setItem("rpsh_cam", JSON.stringify(CAM)); } catch {} applyView(true); };
   }
 }
 $("camBtn").onclick = () => { const p = $("camp"); p.hidden = !p.hidden; if (!p.hidden) camUI(); };
+const hf = $("cHfov"); hf.oninput = () => { HFOV = +hf.value * Math.PI / 180; $("vHfov").textContent = hf.value + "°"; try { localStorage.setItem("rpsh_hfov", hf.value); } catch {} applyView(true); };
 window.camDbg = { CAM, get camera() { return camera; } };
 const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("video") ? 1 : 0;   // live camera: first person; test stills/clips: mirror   // mirror = the room seen from the phone, mirrored like the video
 $("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); };
@@ -488,7 +552,7 @@ for (const z of [-3.2, 3.2]) {   // a wall behind each player
 
 // --- revolver + targets (first person). No mode: a closed hand near the revolver picks it up, the barrel follows the
 // hand (wrist -> middle knuckle), extending and curling the index finger pulls the trigger, an open hand drops it. ------
-const GUN_HOME = new THREE.Vector3(-0.22, FLOOR_Y + 0.025, -0.3);   // on the table at your RIGHT (first person looks toward +z, so your right is -x), in front, at a depth the phone still tracks
+const GUN_STAND = 0.16, GUN_HOME = new THREE.Vector3(-0.12, FLOOR_Y + GUN_STAND + 0.025, -0.45);   // on a stand at hand height, at your RIGHT (first person looks toward +z, so your right is -x), at the depth the hands usually are, inside the mirror frame
 const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d45, metalness: 0.8, roughness: 0.35 }), woodMat = new THREE.MeshStandardMaterial({ color: 0x6b3f22, roughness: 0.7 });
 function makeRevolver() {   // barrel along local +z, grip down (-y); the muzzle is at (0, 0.03, 0.15)
   const g = new THREE.Group();
@@ -504,7 +568,9 @@ const gun = { mesh: makeRevolver(), holder: null, lastShot: 0, shots: 0, hits: 0
 const webMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, emissive: 0x666666, roughness: 0.9 }), webGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1), WEB_UP = new THREE.Vector3(0, 1, 0);
 gun.mesh.position.copy(GUN_HOME); gun.mesh.rotation.set(0, 0, Math.PI / 2); worldGroup.add(gun.mesh);   // lying on its side
 const gunRing = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.12, 40), new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.6, side: THREE.DoubleSide }));   // marks where the revolver rests
-gunRing.rotation.x = -Math.PI / 2; gunRing.position.set(GUN_HOME.x, FLOOR_Y + 0.003, GUN_HOME.z); worldGroup.add(gunRing);
+gunRing.rotation.x = -Math.PI / 2; gunRing.position.set(GUN_HOME.x, FLOOR_Y + GUN_STAND + 0.003, GUN_HOME.z); worldGroup.add(gunRing);
+const gunStand = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.045, GUN_STAND, 16), gunMat); gunStand.position.set(GUN_HOME.x, FLOOR_Y + GUN_STAND / 2, GUN_HOME.z); gunStand.castShadow = true; worldGroup.add(gunStand);
+const gunTop = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.01, 32), woodMat); gunTop.position.set(GUN_HOME.x, FLOOR_Y + GUN_STAND - 0.005, GUN_HOME.z); gunTop.castShadow = true; gunTop.receiveShadow = true; worldGroup.add(gunTop);
 const ringTex = (() => {   // bullseye
   const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
   [["#f2f2f2", 128], ["#d92b2b", 100], ["#f2f2f2", 72], ["#d92b2b", 44], ["#f2f2f2", 18]].forEach(([col, r]) => { g.fillStyle = col; g.beginPath(); g.arc(128, 128, r, 0, Math.PI * 2); g.fill(); });
@@ -594,7 +660,7 @@ function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own 
   });
   gun.tracers = gun.tracers.filter(tr => { const a = 1 - (now - tr.t) / 120; if (a <= 0) { worldGroup.remove(tr.line); return false; } tr.line.material.opacity = a; return true; });
   if (flash.visible && now - flash.userData.t > 60) flash.visible = false;
-  $("gun").textContent = (gun.holder ? `REVOLVER in hand - point, extend your index and curl it to fire | SHOTS ${gun.shots}` : `REVOLVER on the table at your right (yellow ring) - grab it with a fist`) + ` | WEBS ${gun.webs} (index + pinky out, palm to the phone) | HITS ${gun.hits}`;
+  $("gun").textContent = (gun.holder ? `REVOLVER in hand - point, extend your index and curl it to fire | SHOTS ${gun.shots}` : `REVOLVER on the stand at your right (yellow ring) - grab it with a fist`) + ` | WEBS ${gun.webs} (index + pinky out, palm to the phone) | HITS ${gun.hits}`;
 }
 window.gunDbg = { gun, targets, fire: (from, dir) => fireFrom(from, dir, performance.now()), web: (key, from, dir) => shootWeb(key, from, dir, performance.now()), update: (hands) => gunUpdate(performance.now(), hands.map(h => ({ key: h.key, pts: h.pts.map(q => new THREE.Vector3(...q)) }))) };   // test hooks
 
@@ -898,6 +964,7 @@ function renderOverlay(displayed) {   // displayed: flat GL arrays of the hands 
     });
   }
   if (DEBUG_OVERLAY) for (const a of displayed) skeleton(toImage(a), "#4de3ff", Math.max(1.5, ovW / 400));   // cyan = 3D hand reprojected; ?debug=1 (the owner wants one overlay)
+  if (faceLm && faceContours) { octx.lineWidth = Math.max(1, ovW / 500); octx.strokeStyle = "#ffb07a"; octx.beginPath(); for (const [a, b] of faceContours) { octx.moveTo(faceLm[a][0] * ovW, faceLm[a][1] * ovH); octx.lineTo(faceLm[b][0] * ovW, faceLm[b][1] * ovH); } octx.stroke(); }   // orange = tracked face
 }
 
 // --- main ---------------------------------------------------------------------------------------
@@ -913,7 +980,7 @@ window.dbgRemote = remote;         // test hook: what remote hands this page is 
 let net = null;
 function remoteHand(key) { if (!remote.has(key)) remote.set(key, { hand: makeHand(), a: null, t: 0 }); return remote.get(key); }
 function onHands(pkt, who) {
-  if (SCREEN && who === "me" && pkt.fw) { pitch = pkt.p || 0; if (frameW !== pkt.fw || frameH !== pkt.fh) { frameW = pkt.fw; frameH = pkt.fh; applyView(true); } }   // screen: mirror like the phone
+  if (SCREEN && who === "me" && pkt.fw) { pitch = pkt.p || 0; if (frameW !== pkt.fw || frameH !== pkt.fh) { frameW = pkt.fw; frameH = pkt.fh; applyView(true); } if (pkt.hf && pkt.hf !== onHands.hf) { onHands.hf = HFOV = pkt.hf; applyView(true); } }   // screen: mirror like the phone (the phone's CAM FOV follows when it changes; the screen's own slider still works)
   const now = performance.now();
   for (const h of pkt.hands) { const r = remoteHand(who + ":" + h.n); r.a = Float32Array.from(h.a); r.t = now; r.m = h.m; }
   if (who === "opp") theirMove = pkt.m ?? null;
@@ -934,6 +1001,7 @@ function gameMsg(m) {   // from the opponent (player) or forwarded to the screen
   if (m.a === "start") gameStart(performance.now());
   else if (m.a === "move") { game.their = m.m || "NONE"; }   // "NONE" = the opponent locked with no hand in view (still an answer)
   else if (m.a === "hud") { game.text = m.game; $("score").textContent = m.score; }
+  else if (m.a === "face" && m.m) { faceSeen = performance.now(); placeFace(m.m); }
 }
 function updateGame(now, move) {
   if (game.phase === "count" && now - game.t0 >= 3000) { game.my = move ?? null; game.phase = "wait"; game.t0 = now; net?.sendGame({ a: "move", m: game.my }); }
@@ -981,7 +1049,7 @@ async function screenMain() {   // the PC: no camera, no tracker; render the lin
   net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
     screenReady: showPair, linked: () => { $("pair").hidden = true; }, unlinked: sc => showPair(sc) });
   net.becomeScreen();
-  const loop = () => { const now = performance.now(); gunUpdate(now, drawRemote(now)); $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
+  const loop = () => { const now = performance.now(), mine = drawRemote(now); followEye(mine.map(h => h.pts)); gunUpdate(now, mine); faceGroup.visible = now - faceSeen < 700 && VIEWS[view] === "mirror"; $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
 }
 async function main() {
@@ -1009,6 +1077,7 @@ async function main() {
 
   frameW = video.videoWidth || video.naturalWidth || frameW; frameH = video.videoHeight || video.naturalHeight || frameH;
   const tracker = await makeTracker();
+  let faceTracker = null; if (Q.get("face") !== "0") makeFaceTracker().then(f => { faceTracker = f; faceContours = f.contours; }).catch(e => console.warn("no face tracking:", e));
   SKIN = await skinPromise; window.SKIN = SKIN; if (SKIN) $("status").textContent = "Preparing the hand…";   // shader compile below can take seconds on some GPUs
 
   // one slot per hand, keyed by MediaPipe's handedness label
@@ -1051,7 +1120,7 @@ async function main() {
     if (Math.abs(best.t - cap) > 40) return;
     const pr = toImage(best.a); dbg.lagSum += pr.reduce((t, q, i) => t + Math.hypot(q.x - lm[i].x, q.y - lm[i].y), 0) / 21; dbg.lagN++;
   }
-  let framePending = false, lastT = -1, ts = 0, inflight = false, move = null, nHands = 0, lastRecv = 0, hold = HOLD_MS, bigHand = false, bigUntil = 0;
+  let framePending = false, lastT = -1, ts = 0, inflight = false, move = null, nHands = 0, lastRecv = 0, hold = HOLD_MS, bigHand = false, bigUntil = 0, faceInflight = false;
   const dbg = window.dbg = { lm: () => ovHands, slots, get frameW() { return frameW; }, get frameH() { return frameH; }, frames: 0, two: 0, held: 0, labelFlips: 0, maxJump: 0, bigJumps: 0, spikes: 0, snaps: 0, handovers: 0, dispJumps: 0, reprojN: 0, reprojSum: 0, lagSum: 0, lagN: 0, depthClamps: 0, palmClamps: 0, fingerClamps: 0, pinches: 0, pitch: 0, tiltOn: false, moves: { ROCK: 0, PAPER: 0, SCISSORS: 0, none: 0 }, fitSum: 0, padded: 0, tm: { pre: 0, prep: 0, worker: 0, lat: 0, n: 0, render: 0, loop: 0, draw: 0, loops: 0, leadSum: 0, leadN: 0, rvfc: 0 } };   // test metrics + timing (ms sums; pre = createImageBitmap on the main thread, prep = the worker's padding copy, lat = capture to result)
   let stat = { ms: 0, lat: 0, n: 0, t: performance.now() }, prev = performance.now();
 
@@ -1061,6 +1130,14 @@ async function main() {
     inflight = true; lastT = video.currentTime; framePending = false;
     const cap = performance.now(); ts = Math.max(ts + 1, Math.floor(cap));
     const pad = nHands === 0 && dbg.frames % 3 === 2 ? PAD : 0;   // adaptive input padding
+    if (faceTracker && !faceInflight && dbg.frames % 2 === 1) {   // head: every other frame, in parallel with the hands
+      faceInflight = true;
+      faceTracker.detect(video, ts).then(fr => {
+        faceInflight = false;
+        if (fr.face) { faceLm = fr.face.lm; if (fr.face.m) { faceMatrix = fr.face.m; faceSeen = performance.now(); placeFace(fr.face.m); net?.sendGame({ a: "face", m: fr.face.m.map(v => Math.round(v * 1000) / 1000) }, true); } }
+        else faceLm = null;
+      }).catch(() => { faceInflight = false; });
+    }
     const r = await tracker.detect(video, ts, pad);
     inflight = false;
     const recv = performance.now();
@@ -1106,7 +1183,7 @@ async function main() {
     }
     if (net && (net.opp || net.screen)) {   // stream my hands to the opponent and the PC screen, mm precision
       const hs = []; for (const s of [slots.Right, slots.Left]) if (s.gl && recv - s.lastSeen < hold) hs.push({ n: s.key, a: Array.from(s.gl, v => Math.round(v * 1000) / 1000), m: moveFromFingers(s.ext) });
-      net.sendHands({ t: "h", who: "me", hands: hs, m: move, ts: Math.round(cap), p: tiltOn ? pitch : 0, fw: frameW, fh: frameH });
+      net.sendHands({ t: "h", who: "me", hands: hs, m: move, ts: Math.round(cap), p: tiltOn ? pitch : 0, fw: frameW, fh: frameH, hf: HFOV });
     }
     if (useRvfc && framePending) pump();   // a newer camera frame arrived while this one was in the tracker: start it now, not at the next rAF
   };
@@ -1147,10 +1224,11 @@ async function main() {
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
-    { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-(CAM.back + 0.15), zMin - CAM.back); eyeZ += 0.08 * (target - eyeZ); }
+    followEye(mine.map(h => h.pts));
     drawRemote(now); updateGame(now, move); gunUpdate(now, mine);
+    faceGroup.visible = now - faceSeen < 700 && VIEWS[view] === "mirror";
     if (now - stat.t > 1000) {
-      $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;
+      $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | head ${faceTracker ? (performance.now() - faceSeen < 700 ? "on" : "no face") : "loading"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;
       trackerFps = stat.n; stat = { ms: 0, lat: 0, n: 0, t: now }; dbg.pitch = pitch; dbg.tiltOn = tiltOn;
     }
     $("hand").textContent = "HANDS: " + (hud.join("  |  ") || "-");

@@ -1015,3 +1015,36 @@ Owner: "issues with the connection to the SCREEN option, Dust II works"; then a 
 waiting up to 60 s. The phone's screen link now gives negotiation 15 s (was 4 s, which hung up on slow relay
 paths), shows the ICE state in the readout, and only redials on a real failure. Verified: close + reopen shows a
 code in 0.4 s (same number); pairing test green.
+
+## 31. Build 45: head tracking + the owner's mask, CAM FOV slider, revolver on a stand, movement v58 (2026-09-11)
+
+Owner (with `face-mask.zip`): "add head tracking and draw it at the same time so I can see and use this mask as well as
+the hands; I want to check the head tracking in the mirror". Then: "no FOV slider, no face tracking, no mask, the gun is
+way too far away", and "pull the latest Dust II with the newer tracking".
+
+- **Head**: a second worker runs MediaPipe FaceLandmarker (float16 task, 13.8 MB, GPU then CPU) on every other tracker
+  frame, in parallel with the hands (`makeFaceTracker`, `FACE_WORKER_SRC`). It returns the 478 image landmarks (drawn
+  as orange contours on the video overlay) and the facial transformation matrix: column-major 4x4, translation in cm,
+  x right / y up / z toward the camera = our GL frame, so `placeFace` just scales by 0.01 and copies rotation. The
+  head is `faceGroup` under `worldGroup` (mirrors with the hands): Google's `canonical_face_model.obj` (468 v, cm) as a
+  green wire mesh + `docs/mask/Mask.obj` (from the zip, 3736 v, 0.247 wide in file units) scaled to 16 cm wide,
+  centred, pushed 4 cm forward so it sits on the face. Tuning: `?maskscale=1.1 ?maskoff=x,y,z ?maskrot=rx,ry,rz`.
+  Mirror view only (`faceGroup.visible = seen < 0.7 s ago && mirror`): in first person the eye IS the head. The phone
+  sends the matrix to the PC screen (`{t:"g", a:"face", m:[16]}`), which places the same head. HUD stats show
+  `head on / no face / loading`. Hooks: `window.faceDbg` (matrix, visible, lm, group), `window.maskDbg`.
+- **CAM FOV slider** (top of the CAM panel): sets `HFOV` (now `let`) = the phone camera's real horizontal field of
+  view, which drives both the depth solve and the mirror view's projection; saved as `rpsh_hfov` (`?fov=` still wins).
+  The phone sends it as `hf` in the hands packet; the screen adopts it when it changes, while the screen's own slider
+  still works locally. The other four sliders stay first-person only.
+- **Revolver on a stand**: `GUN_HOME` is now (-0.12, table + 0.16 + 0.025, -0.45): a post with a wooden top at hand
+  height, at the depth hands usually are, inside the mirror frame (before: on the table at x -0.22, z -0.3 - outside
+  the 60 deg mirror frame, so the owner never saw it). Drops still land on the table under the hand; auto-return to the
+  stand after 3 s. The PC screen's first-person eye now follows the phone's hands too (`followEye`, shared).
+- **Movement v58**: the brother's Dust II build pulled (fork commits db0b6c5..f170136: face orientation tracked directly,
+  360 head control, merged BVH collisions, larger thumb range). Branch `phone-camera` rebased on it (camlink import
+  and script tags re-applied; `?v=58` everywhere), force-pushed -> PR d14life/rps-hand#1 updated; rps-map main
+  updated; `docs/movement/` in our main = the same files. His 67 unit tests pass on the merged tree.
+- Test: `web_face_test.py` - face on `test/robbie_v.jpg` (head 0.55 m, 478 landmarks, mask loaded, scale 0.647) and
+  `test/seated_desk.jpg` (head 1.27 m with both hands tracked); `peace.jpg` correctly reports no face; first person
+  hides the head, mirror shows it; the screen receives the head over the broker; renders `face_front/side/three_quarter.png`
+  checked by eye (mask on the face, wire face behind it). No page errors.

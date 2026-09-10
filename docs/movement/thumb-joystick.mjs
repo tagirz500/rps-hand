@@ -17,7 +17,6 @@ export function measureThumb(image,world,aspect=4/3){
  return {rest:wrapped,scale:span,point:[1-image[4].x,image[4].y/aspect]};
 }
 const valid=s=>s?.point?.length===2&&s.point.every(Number.isFinite)&&Number.isFinite(s.scale)&&s.scale>0;
-const distance=(a,b)=>Math.hypot(...a.map((v,i)=>v-b[i]));
 export function thumbVector(point,centre){
  if(!point||!centre||![...point,...centre].every(Number.isFinite))return null;
  const x=point[0]-centre[0],z=point[1]-centre[1],r=Math.hypot(x,z);
@@ -27,33 +26,26 @@ export function thumbVector(point,centre){
  return {x:x/r*magnitude,z:z/r*magnitude};
 }
 export class ThumbJoystick {
- constructor(){this.size=.55;this.speed=4.5;this.reset();}
- reset(){this.centre=null;this.scale=null;this.needsRest=true;this.settling=[];this.seen=-Infinity;this.stop('SHOW RELAXED FIST');}
+ constructor(){this.size=.8;this.speed=4.5;this.reset();}
+ reset(){this.centre=null;this.scale=null;this.needsRest=true;this.settling=[];this.seen=-Infinity;this.stop('SHOW THUMB');}
  stop(reason){this.x=this.z=0;this.raw={x:0,z:0};this.candidate=null;this.lastTilt=null;this.reason=reason;}
  receive(sample,time){
   if(!valid(sample)){this.stop('TRACKING LOST');this.needsRest=true;this.settling=[];this.seen=-Infinity;return;}
   if(time<=this.seen)return;
-  const elapsed=time-this.seen;if(elapsed>250){this.needsRest=true;this.stop('SHOW FIST TO RESUME');this.settling=[];}this.seen=time;
+  const elapsed=time-this.seen;if(elapsed>450){this.needsRest=true;this.stop('RETURN THUMB TO CENTRE');this.settling=[];}this.seen=time;
   const t=sample.point;
-  // Capture only an actual resting fist. A held steering pose must never
-  // silently become the neutral reference.
-  if(sample.rest){
-   if(this.centre){this.needsRest=false;this.stop('FIST REST');return;}
-   this.stop('HOLD FIST STILL');
-   if(this.settling.length&&distance(t,this.settling[0].point)>sample.scale*.1)this.settling=[];
-   this.settling.push({point:[...t],scale:sample.scale,time});
-   if(this.settling.length>=5&&time-this.settling[0].time>=350){
-    this.centre=[0,1].map(i=>this.settling.map(p=>p.point[i]).sort((a,b)=>a-b)[Math.floor(this.settling.length/2)]);
-    this.scale=this.settling.map(p=>p.scale).sort((a,b)=>a-b)[Math.floor(this.settling.length/2)];
-    this.centre[1]-=.35*this.scale; // Circle sits above the resting fist.
-    this.needsRest=false;this.settling=[];this.stop('FIST REST · CENTRE SAVED');
-   }else if(this.centre)this.reason='FIST REST · CENTRE SAVED';
-   return;
+  // First visible thumb places the fixed circle, with no timed pose setup.
+  if(!this.centre){
+   this.centre=[...t];this.scale=sample.scale;
+   if(sample.rest)this.centre[1]-=.35*this.scale;
+   this.needsRest=false;this.stop('READY');return;
   }
-  this.settling=[];
-  if(!this.centre){this.stop('SHOW RELAXED FIST FIRST');return;}
-  if(this.needsRest){this.stop('SHOW FIST TO RESUME');return;}
+  if(sample.rest){this.needsRest=false;this.stop('FIST REST');return;}
   const offset=t.map((v,i)=>(v-this.centre[i])/this.effectiveScale);
+  if(this.needsRest){
+   if(Math.hypot(...offset)>.20){this.stop('RETURN THUMB TO CENTRE');return;}
+   this.needsRest=false;this.stop('NEUTRAL');return;
+  }
   const active=Math.hypot(this.x,this.z)>.01;
   // Keep the learned fist reference fixed while the thumb is steering.
   if(!active&&Math.hypot(...offset)<.20){this.stop('NEUTRAL');return;}
@@ -64,13 +56,13 @@ export class ThumbJoystick {
   if(!active||change>.8){
    const agreement=this.candidate?(v.x*this.candidate.x+v.z*this.candidate.z)/(Math.hypot(v.x,v.z)*Math.hypot(this.candidate.x,this.candidate.z)):-1;
    if(!this.candidate||agreement<Math.cos(Math.PI/5))this.candidate={...v,since:time,count:1};else this.candidate.count++;
-   if(this.candidate.count<2||time-this.candidate.since<70){if(!active)this.reason='CONFIRMING TILT';return;}
+   if(this.candidate.count<2||time-this.candidate.since<25){if(!active)this.reason='CONFIRMING TILT';return;}
   }
-  this.candidate=null;const alpha=active?1-Math.exp(-Math.min(100,elapsed)/30):1;
+  this.candidate=null;const alpha=active?1-Math.exp(-Math.min(100,elapsed)/18):1;
   this.x+=(v.x-this.x)*alpha;this.z+=(v.z-this.z)*alpha;this.lastTilt=t;this.reason='MOVING';
  }
  get effectiveScale(){return this.scale===null?null:this.scale*this.size;}
- setSize(value){if(!Number.isFinite(value))return;this.size=Math.max(.35,Math.min(1.6,value));this.needsRest=true;this.stop('SHOW FIST TO RESUME');}
+ setSize(value){if(!Number.isFinite(value))return;this.size=Math.max(.35,Math.min(1.6,value));this.needsRest=true;this.stop('RETURN THUMB TO CENTRE');}
  get direction(){return Math.hypot(this.x,this.z)>.01?[this.z<-.05?'FORWARD':this.z>.05?'BACKWARD':'',this.x<-.05?'LEFT':this.x>.05?'RIGHT':''].filter(Boolean).join(' '):null;}
- step(now,dt=.016){if(now-this.seen>250){this.needsRest=true;this.settling=[];this.stop('TRACKING LOST');}const d=this.speed*Math.min(.05,Math.max(0,dt));return {dx:this.x*d,dz:this.z*d};}
+ step(now,dt=.016){if(now-this.seen>450){this.needsRest=true;this.settling=[];this.stop('TRACKING LOST');}const d=this.speed*Math.min(.05,Math.max(0,dt));return {dx:this.x*d,dz:this.z*d};}
 }
