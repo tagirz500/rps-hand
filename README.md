@@ -4,7 +4,7 @@ Hand and head tracking from a phone camera, drawn as a 3D replica of your own ha
 against a person or the computer, a revolver on a stand, targets, Spider-Man webs, a mask on your tracked head, and a
 Dust II map you walk through with a finger joystick and head look.
 
-**Live:** https://tagirz500.github.io/hands-lapse/ · map: https://tagirz500.github.io/hands-lapse/movement/?v=60
+**Live:** https://tagirz500.github.io/hands-lapse/ · map: https://tagirz500.github.io/hands-lapse/movement/?v=61
 
 ## Where it comes from
 
@@ -15,14 +15,14 @@ has both lines of work:
 |---|---|
 | The hand model: fist prior, fold prior, knuckle spread, per-joint angle smoothing, the solid-hand solver (fingers cannot pass through each other or the palm), the forearm cut and capped at the wrist, thicker fingers, 480 px tracker input | Multiplayer with lobbies and quick match, the PC-screen link by 3-digit code and QR, mirror view, the CAM sliders |
 | The head module `docs/head/`: a six-parameter perspective fit of the canonical face, used for both the mask and the map's head look | The revolver on its stand, bullseye targets, Spider-Man webs, the owner's mask on the tracked head |
-| The movement build `docs/movement/` (Dust II, finger joystick, head look, v60) | Phone-as-camera for the map (`camlink.mjs`), the game rounds and scoring |
+| The movement build `docs/movement/` (Dust II, finger joystick, head look, v61) | Phone-as-camera for the map (`camlink.mjs`), the game rounds and scoring |
 
 ## The pages
 
 | Page | Live link | What it is |
 |---|---|---|
 | **Hands** | https://tagirz500.github.io/hands-lapse/ | Camera + tracking on top, the 3D room below. Source: `docs/index.html` (one file), history in `HANDOFF.md`. |
-| **Map** | https://tagirz500.github.io/hands-lapse/movement/?v=60 | Walking and turning in Dust II with a finger joystick and head look. Source: `docs/movement/`, history in `MOVEMENT_HANDOFF.md`. |
+| **Map** | https://tagirz500.github.io/hands-lapse/movement/?v=61 | Walking and turning in Dust II with a finger joystick and head look. Source: `docs/movement/`, history in `MOVEMENT_HANDOFF.md`. |
 
 Both need a phone camera. On a PC choose **SCREEN**: the phone shows the camera and the PC shows the 3D view.
 
