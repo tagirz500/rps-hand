@@ -12,6 +12,7 @@
 const ICE = { iceServers: [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },   // free public TURN relay for strict mobile NATs
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
 ] };
 const ROOMS = 8;                 // ids rpsh-room-1..8 are probed for the lobby list
 const PROBE_MS = 2500;
@@ -23,19 +24,19 @@ async function keepAwake() {     // a sleeping phone drops the broker socket and
 }
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
 
-function stored(key) {           // a short numeric code kept in this browser
+function stored(store, key, fresh = false) {   // a short numeric code kept in this browser (localStorage) or this tab (sessionStorage)
   let c = null;
-  try { c = localStorage.getItem(key); if (!c) { c = rnd(); localStorage.setItem(key, c); } } catch { c = rnd(); }
+  try { c = fresh ? null : store.getItem(key); if (!c) { c = rnd(); store.setItem(key, c); } } catch { c = rnd(); }
   return c;
 }
-export const myCode = () => stored("rpsh_code" + CODE_LEN);        // the player's "account"
-export const screenCode = () => stored("rpsh_screen" + CODE_LEN); // the screen's code
+export const myCode = (fresh = false) => stored(sessionStorage, "rpsh_code" + CODE_LEN, fresh);   // the phone's id: per tab, so two tabs never fight over it
+export const screenCode = (fresh = false) => stored(localStorage, "rpsh_screen" + CODE_LEN, fresh); // the screen's code: per browser, so its QR survives a reload
 
 // cb: { status(text), hands(pkt, from), game(msg, from), matched(role), lost(who), rooms(list), roomOpen(k),
 //       screenReady(code), linked(phoneCode), unlinked() }
 export function createNet(cb) {
-  const code = myCode();
-  const net = { code, peer: null, opp: null, screen: null, phone: null, host: false, room: null, stats: { sent: 0, recv: 0 } };
+  let code = myCode();
+  const net = { get code() { return code; }, peer: null, opp: null, screen: null, phone: null, host: false, room: null, stats: { sent: 0, recv: 0 } };
   const say = t => cb.status?.(t);
 
   function wire(conn, who) {                                  // attach a data connection as the opponent or the screen
@@ -54,14 +55,17 @@ export function createNet(cb) {
     if (net.peer && !net.peer.destroyed) return net.peer;
     const p = net.peer = new Peer("rpsh-" + code, { config: ICE });
     p.on("open", () => { retries = 0; say("online as " + code); keepAwake(); });
-    p.on("disconnected", () => { say("reconnecting…"); setTimeout(() => { if (!p.destroyed) p.reconnect(); }, 1000); });   // broker socket dropped (phone slept): come back
+    p.on("disconnected", () => {                              // broker socket dropped (phone slept, network blip): come back, unless we are replacing this peer
+      if (p.dead || p.destroyed) return;
+      say("reconnecting to the broker…"); setTimeout(() => { if (!p.dead && !p.destroyed) p.reconnect(); }, 1500);
+    });
     p.on("error", e => {
       if (e.type === "peer-unavailable") return;              // a probe or a dial to an absent id; handled by timeouts
       console.warn("peer error", e);
-      if (e.type === "unavailable-id") {                        // a stale registration from an earlier load holds the code for up to a minute: retry
-        if (retries++ < 20) { say("code " + code + " still registered, retrying… (" + retries + ")"); p.destroy(); setTimeout(ensurePeer, 3000); }
-        else say("code " + code + " is in use elsewhere: close other tabs of this page");
-      } else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(ensurePeer, 3000); }
+      if (e.type === "unavailable-id") {                        // this code is registered elsewhere (another tab, a stale page): take a new one right away
+        p.dead = true; p.destroy(); code = myCode(true);
+        if (retries++ < 8) { say("code taken, switching to " + code); setTimeout(ensurePeer, 500); } else say("cannot register with the broker");
+      } else if (e.type === "network" || e.type === "server-error") { p.dead = true; say("broker unreachable, retrying…"); p.destroy(); setTimeout(ensurePeer, 3000); }
     });
     p.on("connection", conn => {
       conn.on("open", () => {
@@ -80,9 +84,13 @@ export function createNet(cb) {
     const register = () => {
       const p = net.peer = new Peer("rpsh-s-" + sc, { config: ICE });
       p.on("open", () => { say("screen " + sc + ": waiting for a phone…"); cb.screenReady?.(sc); keepAwake(); });
-      p.on("disconnected", () => setTimeout(() => { if (!p.destroyed) p.reconnect(); }, 1000));
+      p.on("disconnected", () => setTimeout(() => { if (!p.dead && !p.destroyed) p.reconnect(); }, 1500));
       p.on("error", e => {
-        if (e.type === "unavailable-id") { p.destroy(); if (tries++ < 3) setTimeout(register, 3000); else { sc = rnd(); try { localStorage.setItem("rpsh_screen" + CODE_LEN, sc); } catch {} tries = 0; register(); } }
+        if (e.type === "unavailable-id") {                     // an earlier load of this screen still holds the code (up to ~1 min): keep the number, wait it out
+          p.dead = true; p.destroy();
+          if (tries++ < 30) { say("screen " + sc + " busy (an older page of this screen is still registered), retrying… " + tries); cb.screenReady?.(sc); setTimeout(register, 2000); }
+          else { sc = screenCode(true); tries = 0; register(); }
+        }
         else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(register, 3000); }
         else if (e.type !== "peer-unavailable") console.warn("screen peer error", e);
       });

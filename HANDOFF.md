@@ -920,3 +920,13 @@ code and a 3-digit number".
 - Known: a second tab of the same phone waits on "code still registered" (one phone tab at a time); the lobby
   list costs 8 probes per refresh; rooms are global across everyone using the public broker with this id
   scheme (fine for now, prefix the ids if that ever matters).
+
+### 28b. Build 34: per-tab phone codes, no reconnect loop (2026-09-10, night)
+
+Owner: phone stuck on "reconnecting…", screen "waiting for a phone". Cause: the phone page was already open and the
+screen's QR opened a second tab; both tabs claimed the same (localStorage) phone code, the broker rejected the second
+with `unavailable-id`, and the `disconnected` handler kept calling `reconnect()` on the rejected peer. Fixes: the phone
+code is per TAB (sessionStorage) and a taken code is replaced at once (`myCode(true)`); `p.dead` stops the reconnect
+handler once the error handler has given up on a peer; a reloaded SCREEN waits out its own stale registration (up to
+60 s, showing "busy… retrying") so its QR/number stay valid; TURN over TCP 443 added. `web_tabs_test.py` reproduces the
+two-tab scenario and the screen reload.
