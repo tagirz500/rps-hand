@@ -1,13 +1,15 @@
-# RPS hand and tracked mesh workflow
+# Head tracking, first-person mirror and reusable 3D assets
 
-For replacing the hand model in another coding session, start with **[HANDOFF.md](HANDOFF.md)**. It contains the complete method, runnable commands, coordinate conventions, model-swap checklist, and known limits.
+Start with **[HANDOFF.md](HANDOFF.md)** for the complete current method, file map,
+run instructions, validation, limitations and links to earlier hand components.
 
-- [Mirror app](mirror/index.html): current textured rig, nails and corrected folded-finger deformation.
-- [Blender pipeline](tools/hand-rig/): import/render, detect, bind, smooth and export a new model.
-- [Editable hand assets](assets/hand-rig/): unrigged reference, paired landmark template and current rig.
-- [Runtime renderer](mirror/hand/TrackedHand.js): connect all 21 joints to the existing detector.
-- [Pose checks](mirror/hand/verify.html): rest, scissors, thumbs-up/down and left pointing.
+- [Live head-only app](https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?fast=7)
+- [Current app source](mirror/index.html)
+- [Tracking implementation](mirror/head/)
+- [Sculpture head model](mirror/avatar/head.glb)
+- [Editable head assets](assets/head-rig/)
+- [Head processing script](tools/head-rig/build.py)
 
-The root app retains upstream build 9. The mirror is a separate reproducible mesh example. This branch does not substitute its older tracker snapshot for the root app's newer tracking changes.
-
-Run `python -m http.server 8000` from this directory, then open `http://localhost:8000/mirror/?img=thumbs_down.jpg`.
+Run `python -m http.server 8000`, then open `http://localhost:8000/mirror/`.
+The current app tracks only the head. The root RPS app and historical hand work
+are separate; see the handoff guide before reusing older parts.
