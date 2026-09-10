@@ -1048,3 +1048,10 @@ way too far away", and "pull the latest Dust II with the newer tracking".
   `test/seated_desk.jpg` (head 1.27 m with both hands tracked); `peace.jpg` correctly reports no face; first person
   hides the head, mirror shows it; the screen receives the head over the broker; renders `face_front/side/three_quarter.png`
   checked by eye (mask on the face, wire face behind it). No page errors.
+- Regression (same PC, headless Edge, build 45): gun test green (pickup, 5/5 hits, recovery, open hand ignored, screen
+  pickup); hard test stills 5/9, clips wave/counting/cleanhands/handwash 30 fps, gesture67 27, handclap 15, rps 12 (the
+  last two run out of hands, as before). A/B on the fast clips with `?face=0`: face ON vs OFF - wave 30/30 fps,
+  gesture67 28/28, handclap 15/15; tracker 21-26 ms vs 16-21 ms; reproj/lag/jumps equal within noise (gesture67 reproj
+  1.23 vs 1.37 %, handclap 1.16 vs 1.88 %). The head worker costs ~5 ms of tracker time and no hand quality here.
+- Live: https://tagirz500.github.io/rps-hand/ served build 45 ~2 min after the push; `web_face_test.py` against the
+  live site: same numbers, screen relay OK, no errors.
