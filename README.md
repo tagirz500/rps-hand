@@ -6,6 +6,7 @@ hand copies the motion live in a room, with depth, physics and tilt levelling.
 - **Live (phone, camera needed):** https://tagirz500.github.io/rps-hand/  (served from `docs/`)
 - **Desktop app:** `rps_hand.py` (Python + MediaPipe + pygame/OpenGL), build commands in `HANDOFF.md` §4
 - **Handoff for a new AI session or person:** `HANDOFF.md` (everything), `CONTINUE.md` (paste-ready prompt)
+- **Online:** ONLINE = random opponent (no server: PeerJS broker + WebRTC), PC LINK = the phone's 6-digit code turns a PC browser into its 3D screen (`docs/net.mjs`, HANDOFF §27)
 - **Tests:** `test_rps_hand.py` (desktop), `web_test.py` (web smoke), `web_hard_test.py` (real footage,
   metrics; needs the test media from `fetch_test_media.py` and the system Microsoft Edge), `web_shot.py` (one screenshot)
 

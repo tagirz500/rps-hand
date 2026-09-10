@@ -23,8 +23,12 @@
   button { position: absolute; padding: 12px 22px; font: inherit; font-weight: 700; border: 0; border-radius: 999px; }
   #play { right: 12px; bottom: 12px; background: #78ff78; color: #000; }
   #play:disabled { opacity: .4; }
-  #mode, #reset, #view { background: #2a3145; color: #fff; padding: 10px 16px; font-size: 14px; }
+  #mode, #reset, #view, #online, #link { background: #2a3145; color: #fff; padding: 10px 16px; font-size: 14px; }
   #mode { left: 12px; bottom: 12px; } #reset { right: 12px; top: 12px; } #view { left: 12px; top: 12px; }
+  #online { right: 12px; top: 12px; } #link { right: 12px; top: 62px; }
+  #play { right: 12px; bottom: 12px; background: #78ff78; color: #000; display: none; }
+  #net { color: #9fe3ff; font-size: 14px; }
+  body.screen #app { grid-template: 1fr / 1fr; } body.screen .pane:first-child { display: none; }
 </style>
 </head>
 <body>
@@ -32,23 +36,29 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 26)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 27)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
     <canvas id="gl"></canvas>
     <button id="view">VIEW</button>
     <button id="mode">MODE: predict</button>
+    <button id="online">ONLINE</button>
+    <button id="link">PC LINK</button>
+    <button id="play">PLAY</button>
+    <div class="hud" id="bottom"><div id="score"></div><div id="game"></div><div id="net">offline</div></div>
   </div>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.min.js"></script>
 <script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js" } }</script>
 <script type="module">
 import * as THREE from "three";
 import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
+import { createNet, myCode } from "./net.mjs";
 
-const BUILD = 26;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 27;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -723,12 +733,62 @@ function renderOverlay(displayed) {   // displayed: flat GL arrays of the hands 
 }
 
 // --- main ---------------------------------------------------------------------------------------
+// --- online: opponent hands, PC screen link, rounds --------------------------------------------------
+// The opponent's hands arrive as their own gravity-levelled camera-frame points (their phone at the origin). In MY room
+// their phone plane is the far side of the table, so their points are mirrored: x -> -x, z -> -z (chirality flips
+// with the mirror; the skin picks its side from the geometry, so a right hand still reads as a right hand).
+const SCREEN = Q.get("screen");   // ?screen=<code>: this browser is the PC screen of that phone (no camera, renders what the phone sends)
+const remote = new Map();          // "me:Right" / "opp:Left" -> { hand, a, t }
+let net = null;
+function remoteHand(key) { if (!remote.has(key)) remote.set(key, { hand: makeHand(), a: null, t: 0 }); return remote.get(key); }
+function onHands(pkt, who) {
+  const now = performance.now();
+  for (const h of pkt.hands) { const r = remoteHand(who + ":" + h.n); r.a = Float32Array.from(h.a); r.t = now; r.m = h.m; }
+  if (who === "opp") theirMove = pkt.m ?? null;
+}
+function drawRemote(now) {
+  for (const [key, r] of remote) {
+    if (!r.a || now - r.t > 600) { r.hand.hide(); continue; }
+    const pts = toVecs(r.a); if (key.startsWith("opp")) for (const q of pts) { q.x = -q.x; q.z = -q.z; }
+    r.hand.draw(pts);
+  }
+}
+const game = { phase: "idle", t0: 0, my: null, their: null, score: [0, 0], text: "" };
+let theirMove = null;
+function gameStart(now) { if (game.phase !== "idle") return; game.phase = "count"; game.t0 = now; game.my = game.their = null; }
+function gameMsg(m) {   // from the opponent (player) or forwarded to the screen
+  if (m.a === "start") gameStart(performance.now());
+  else if (m.a === "move") { game.their = m.m || "NONE"; }   // "NONE" = the opponent locked with no hand in view (still an answer)
+  else if (m.a === "hud") { game.text = m.game; $("score").textContent = m.score; }
+}
+function updateGame(now, move) {
+  if (game.phase === "count" && now - game.t0 >= 3000) { game.my = move ?? null; game.phase = "wait"; game.t0 = now; net?.sendGame({ a: "move", m: game.my }); }
+  if (game.phase === "wait" && (game.their !== null || now - game.t0 > 4000)) {
+    const a = game.my, b = game.their === "NONE" ? null : game.their;
+    game.text = !a || !b ? `YOU ${a ?? "?"} vs ${b ?? "?"} - NO RESULT` : a === b ? `DRAW (${a})` : BEATS[a] === b ? `YOU ${a} beats ${b} - YOU WIN` : `${b} beats your ${a} - YOU LOSE`;
+    if (a && b && a !== b) game.score[BEATS[a] === b ? 0 : 1]++;
+    game.phase = "result"; game.t0 = now;
+  } else if (game.phase === "result" && now - game.t0 >= 3000) { game.phase = "idle"; game.text = ""; }
+  const line = game.phase === "count" ? `SHOOT IN ${3 - Math.floor((now - game.t0) / 1000)}` : game.phase === "wait" ? "waiting for the opponent…" : game.text;
+  const score = net?.opp ? `SCORE you ${game.score[0]} : ${game.score[1]} them` : "";
+  if ($("game").textContent !== line || $("score").textContent !== score) { $("game").textContent = line; $("score").textContent = score; net?.sendGame({ a: "hud", game: line, score }, true); }   // HUD mirror goes to the PC screen only, never to the opponent
+}
 const MODES = ["predict", "smooth", "raw"];   // predict = filter + velocity lead, smooth = filter only, raw = latest tracker result
 const shape = toVecs;   // the 3D model is the tracked geometry itself, so its lines match the video lines exactly
 let mode = 0;
 $("mode").onclick = () => { mode = (mode + 1) % MODES.length; $("mode").textContent = "MODE: " + MODES[mode]; };
 
+async function screenMain() {   // the PC: no camera, no tracker; render the linked phone's hands (and its opponent's) first person
+  document.body.classList.add("screen"); view = 0;
+  SKIN = await skinPromise; window.SKIN = SKIN;
+  $("status").remove();
+  net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg });
+  net.linkScreen(SCREEN);
+  const loop = () => { drawRemote(performance.now()); $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
+  loop();
+}
 async function main() {
+  if (SCREEN) return screenMain();
   let video = $("cam");
   const imgSrc = Q.get("img");  // ?img=victory.jpg = self-check without a camera
   const vidSrc = Q.get("video");   // ?video=test/handwash.webm = self-check on a looping clip
@@ -756,6 +816,19 @@ async function main() {
     renderer.compile(scene, camera); for (const s of Object.values(slots)) s.hand.hide();
   }
   $("status").remove();
+  net = createNet({
+    status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
+    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; },
+    lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
+  });
+  net.start();
+  $("online").onclick = () => { if (net.opp) return; $("online").textContent = "ONLINE: searching"; net.findMatch(); };
+  $("link").onclick = () => {
+    const isPC = navigator.maxTouchPoints === 0;
+    if (isPC) { const c = prompt("Enter the 6-digit code shown on the phone (PC LINK):"); if (c && /^\d{6}$/.test(c.trim())) location.search = "?screen=" + c.trim(); }
+    else alert("Your code: " + net.code + "\n\nOn the PC open the same link, tap PC LINK and enter this code. The PC then shows the 3D hands while this phone tracks.");
+  };
+  $("play").onclick = () => { if (net.opp && game.phase === "idle") { net.sendGame({ a: "start" }); gameStart(performance.now()); } };
   if (SKIN) loadSkin(SKIN_URL.replace(/\.glb$/, "_hi.glb")).then(hi => { SKIN_HI = hi; for (const h of hands) h.addHi(hi); }).catch(() => {});   // high-detail mesh, if this export has one
   const imgCentre = lm => PALM.reduce((c, i) => [c[0] + lm[i].x / PALM.length, c[1] + lm[i].y / PALM.length], [0, 0]);
   const dist2 = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
@@ -838,6 +911,10 @@ async function main() {
       const o = other(s);   // remember where the other hand was, in case this one vanishes behind it
       if (o.filt.x && recv - o.lastSeen < hold) { s.otherPalm = palmFlat(o.gl); s.nearOther = palmFlat(s.gl).distanceTo(s.otherPalm); } else { s.otherPalm = null; s.nearOther = Infinity; }
     }
+    if (net && (net.opp || net.screen)) {   // stream my hands to the opponent and the PC screen, mm precision
+      const hs = []; for (const s of [slots.Right, slots.Left]) if (s.gl && recv - s.lastSeen < hold) hs.push({ n: s.key, a: Array.from(s.gl, v => Math.round(v * 1000) / 1000), m: moveFromFingers(s.ext) });
+      net.sendHands({ t: "h", who: "me", hands: hs, m: move, ts: Math.round(cap) });
+    }
     if (useRvfc && framePending) pump();   // a newer camera frame arrived while this one was in the tracker: start it now, not at the next rAF
   };
   // New camera frames start the tracker the moment they arrive. Polling currentTime once per rAF added up to a display frame
@@ -876,6 +953,7 @@ async function main() {
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
+    drawRemote(now); updateGame(now, move);
     if (now - stat.t > 1000) {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;
       trackerFps = stat.n; stat = { ms: 0, lat: 0, n: 0, t: now }; dbg.pitch = pitch; dbg.tiltOn = tiltOn;

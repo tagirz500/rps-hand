@@ -821,3 +821,45 @@ move him forward/back or turn reliably. Next: rebuild navigation on this base wi
   when folded and erased the bend). After: V with folded ring/pinky, compact fist with thumb across, crossed fingers cross,
   open hand (`sheet_plain2.png`). Codex owns `docs/movement/` (index-finger movement prototype) and left review notes in
   `CODEX_HAND_REVIEW.md` / `CLAUDE_CORRECTION_PROMPT.md` at the repo root; the checkout is shared with it.
+
+## 27. Build 27: multiplayer, matchmaking, PC link (2026-09-10, night, on top of the d14life fork's build 26)
+
+Owner: "add multiplayer with matchmaking; add a Connect-PC option: the phone logs in with a simple 6-digit
+token, the PC hosts and shows only the 3D hands while the phone shows the camera with tracking; do I need a
+server or can it run from my PC?"
+
+**Answer to the server question.** The hand streams (~1 KB per tracker frame, 30 fps) go phone-to-phone over
+WebRTC data channels; nothing relays them. The only server needed is a signalling broker to introduce two
+browsers, and PeerJS's free public broker (0.peerjs.com) does that, so NOTHING runs on the owner's PC and the
+site stays a static GitHub Page. A free public TURN relay (openrelay.metered.ca) is configured for strict
+mobile NATs. Matchmaking also needs no backend: lobby slots are PeerJS ids `rpsh-lobby-1..6`; the first player
+to claim a free id waits there, the next finds it taken, dials it, they exchange codes and continue over their
+own ids; the slot is freed 1.5 s later. Limits: the public broker is best-effort (if it is down, ONLINE fails;
+a self-hosted PeerServer or any WebSocket relay is a 20-line replacement), and two players who claim the same
+slot within the same ~200 ms race (one of them retries the next slot).
+
+**Code = account.** `myCode()` makes a 6-digit code once per browser (localStorage `rpsh_code`); the player's
+PeerJS id is `rpsh-<code>`. There is no login and no server-side account; the code is the identity.
+
+**Roles.** `docs/net.mjs` (`createNet`): player (phone: tracks and streams `{t:"h", who:"me", hands:[{n, a:[63
+floats, mm precision], m}], m, ts}` after every tracker result to the opponent and to the screen; forwards the
+opponent's packets to the screen as `who:"opp"`) and screen (`?screen=<code>`, PC: no camera, `body.screen`
+hides the video pane, renders "me" hands as-is and "opp" hands mirrored, first person). The PC LINK button on a
+phone shows its code; on a PC (no touch) it prompts for a code and reloads into `?screen=`.
+
+**Opponent placement.** Their points arrive in their own levelled camera frame; in my room their phone plane is
+the far side of the table, so x -> -x, z -> -z (`drawRemote`). The skin picks its handedness from the geometry,
+so a mirrored right hand still reads as a right hand. Remote hands vanish 600 ms after the last packet.
+
+**Rounds.** Either player taps PLAY -> `{a:"start"}`; both count 3 s locally (the guest starts one network hop
+later, ~50-100 ms); at the end each sends `{a:"move", m}` (`"NONE"` when no hand was in view); the result and
+score are computed on each side from (my, their); a 4 s timeout covers a lost message. The player mirrors its
+HUD lines to the screen with `{a:"hud"}` (screen only, never to the opponent: an early build leaked them).
+
+**Verified** (`web_net_test.py`, three separate browser contexts in headless Edge through the real PeerJS
+broker): A and B match as host/guest via the lobby, a screen links to A by code, a round played from A gives
+consistent results on all three pages ("YOU SCISSORS beats PAPER - YOU WIN" / "... YOU LOSE" / screen shows
+A's line) and matching scores; a second round with no hand in view resolves as NO RESULT; no console errors.
+
+Not done: physics props are not synchronised (the fork removed them anyway); no reconnection after a dropped
+peer (tap ONLINE again); the screen only shows hands while the phone page is open.
