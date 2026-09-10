@@ -54,6 +54,7 @@ export function createNet(cb) {
   function ensurePeer() {                                     // the player's own peer, id rpsh-<code>
     if (net.peer && !net.peer.destroyed) return net.peer;
     const p = net.peer = new Peer("rpsh-" + code, { config: ICE });
+    addEventListener("pagehide", () => { try { p.destroy(); net.room?.peer.destroy(); } catch {} });   // release ids when the tab closes
     p.on("open", () => { retries = 0; say("online as " + code); keepAwake(); });
     p.on("disconnected", () => {                              // broker socket dropped (phone slept, network blip): come back, unless we are replacing this peer
       if (p.dead || p.destroyed) return;
@@ -86,14 +87,14 @@ export function createNet(cb) {
       p.on("open", () => { say("screen " + sc + ": waiting for a phone…"); cb.screenReady?.(sc); keepAwake(); });
       p.on("disconnected", () => setTimeout(() => { if (!p.dead && !p.destroyed) p.reconnect(); }, 1500));
       p.on("error", e => {
-        if (e.type === "unavailable-id") {                     // an earlier load of this screen still holds the code (up to ~1 min): keep the number, wait it out
-          p.dead = true; p.destroy();
-          if (tries++ < 30) { say("screen " + sc + " busy (an older page of this screen is still registered), retrying… " + tries); cb.screenReady?.(sc); setTimeout(register, 2000); }
-          else { sc = screenCode(true); tries = 0; register(); }
+        if (e.type === "unavailable-id") {                     // an earlier load of this screen still holds the code: take a fresh one at once (the phone reads it off this screen)
+          p.dead = true; p.destroy(); sc = screenCode(true);
+          if (tries++ < 10) { say("code taken, switching to " + sc); setTimeout(register, 300); } else say("cannot register with the broker, reload");
         }
         else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(register, 3000); }
         else if (e.type !== "peer-unavailable") console.warn("screen peer error", e);
       });
+      addEventListener("pagehide", () => { try { p.destroy(); } catch {} });   // release the id the moment the tab closes
       p.on("connection", conn => conn.on("open", () => conn.once("data", m => {
         if (m?.t !== "hello" || m.role !== "player") return;
         if (net.phone?.open) { conn.close(); return; }          // one phone per screen
@@ -114,10 +115,22 @@ export function createNet(cb) {
       if (stop || net.screen?.open) return;
       tries++; say(tries === 1 ? "linking to screen " + sc + "…" : `waiting for screen ${sc}… (${tries}) is the SCREEN page open on the PC?`);
       const conn = net.peer.connect("rpsh-s-" + sc, { reliable: true });
-      let opened = false;
+      let opened = false, done = false;
+      const again = ms => { if (done || stop) return; done = true; try { conn.close(); } catch {} setTimeout(dial, ms); };
       conn.on("open", () => { opened = true; conn.send({ t: "hello", role: "player", code }); net.screen = conn; wire(conn, "screen"); say("PC linked (screen " + sc + ")"); try { localStorage.setItem("rpsh_last_screen", sc); } catch {} });
-      conn.on("close", () => { if (!stop) setTimeout(dial, 3000); });
-      setTimeout(() => { if (!opened && !stop) { try { conn.close(); } catch {} dial(); } }, 4000);
+      conn.on("close", () => { if (opened && !stop) { opened = false; say("screen link dropped, re-linking…"); setTimeout(dial, 2000); } });
+      conn.on("error", e => { console.warn("screen link error", e); again(3000); });
+      // show where the WebRTC negotiation is, and only give up on a real failure (mobile networks can need >10 s through the relay)
+      const watch = () => {
+        const pc = conn.peerConnection; if (!pc) return;
+        pc.addEventListener("iceconnectionstatechange", () => {
+          const st = pc.iceConnectionState;
+          if (!opened) say(`screen ${sc}: negotiating (${st})…`);
+          if (st === "failed" || st === "closed") again(2000);
+        });
+      };
+      setTimeout(watch, 200);
+      setTimeout(() => { if (!opened) { say(`screen ${sc}: no answer in 15 s, retrying… is the SCREEN page open?`); again(500); } }, 15000);
     });
     dial();
   };

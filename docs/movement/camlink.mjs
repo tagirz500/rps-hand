@@ -35,10 +35,11 @@ export function phoneCamera(onStatus = () => {}) {
       p.on("open", () => { show(); state("waiting for the phone… (camera " + code + ")"); keepAwake(); });
       p.on("disconnected", () => setTimeout(() => { if (!p.dead && !p.destroyed) p.reconnect(); }, 1500));
       p.on("error", e => {
-        if (e.type === "unavailable-id") { p.dead = true; p.destroy(); if (tries++ < 30) { state("code " + code + " busy (an older page still holds it), retrying… " + tries); setTimeout(register, 2000); } else { code = camCode(true); tries = 0; register(); } }
+        if (e.type === "unavailable-id") { p.dead = true; p.destroy(); code = camCode(true); if (tries++ < 10) { state("code taken, switching to " + code); setTimeout(register, 300); } else state("cannot register with the broker, reload"); }   // never wait for a stale id: the phone reads the number off this screen anyway
         else if (e.type === "network" || e.type === "server-error") { p.dead = true; p.destroy(); state("broker unreachable, retrying…"); setTimeout(register, 3000); }
         else if (e.type !== "peer-unavailable") console.warn("cam peer error", e);
       });
+      addEventListener("pagehide", () => { try { p.destroy(); } catch {} });   // release the id the moment the tab closes
       p.on("call", call => {
         call.answer();
         call.on("stream", stream => { state("phone camera connected"); box.remove(); resolve(stream); });

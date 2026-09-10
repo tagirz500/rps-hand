@@ -1005,3 +1005,13 @@ How it works: the PC page registers `rpsh-cam-<3 digits>` at the PeerJS broker, 
 MediaStream as its webcam, so his hand tracker, thumb joystick and head look run on the PC GPU. ~100-200 ms extra
 latency vs tracking on the phone. Tested with Edge's fake camera fed from `rps_cam.mjpeg` (scratch; make with
 ffmpeg from docs/test/rps.webm): code + QR, phone "streaming", PC video 640x480, tracker 19-51 ms, no errors.
+
+### 30b. Build 44: ids released on tab close, fresh code when taken, patient screen link (2026-09-11)
+
+Owner: "issues with the connection to the SCREEN option, Dust II works"; then a screenshot of the map page stuck on
+"code 580 busy (an older page still holds it), retrying" after closing and reopening the tab. Fixes in both
+`docs/net.mjs` and `docs/movement/camlink.mjs`: `pagehide` destroys the peer so the broker frees the id at once; an
+`unavailable-id` takes a fresh random code immediately (the phone reads the number off the PC anyway) instead of
+waiting up to 60 s. The phone's screen link now gives negotiation 15 s (was 4 s, which hung up on slow relay
+paths), shows the ICE state in the readout, and only redials on a real failure. Verified: close + reopen shows a
+code in 0.4 s (same number); pairing test green.
