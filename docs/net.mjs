@@ -11,11 +11,17 @@ const ICE = { iceServers: [
   { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },   // free public TURN relay for strict mobile NATs
 ] };
 const LOBBIES = 6;
-const rnd = () => String(Math.floor(100000 + Math.random() * 900000));
+let wake = null;
+async function keepAwake() {   // a sleeping phone drops the broker socket and its code; ask the screen to stay on while online
+  try { if (!wake && navigator.wakeLock) { wake = await navigator.wakeLock.request("screen"); wake.addEventListener("release", () => { wake = null; }); } } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") keepAwake(); });
+const CODE_LEN = 3;   // owner: 3 digits are enough to type across the room
+const rnd = () => String(Math.floor(10 ** (CODE_LEN - 1) + Math.random() * 9 * 10 ** (CODE_LEN - 1)));
 
-export function myCode() {   // the player's "account": a 6-digit code kept in this browser
+export function myCode() {   // the player's "account": a short numeric code kept in this browser
   let c = null;
-  try { c = localStorage.getItem("rpsh_code"); if (!c) { c = rnd(); localStorage.setItem("rpsh_code", c); } } catch { c = rnd(); }
+  try { c = localStorage.getItem("rpsh_code" + CODE_LEN); if (!c) { c = rnd(); localStorage.setItem("rpsh_code" + CODE_LEN, c); } } catch { c = rnd(); }
   return c;
 }
 
@@ -35,11 +41,19 @@ export function createNet(cb) {
     conn.on("error", e => console.warn("conn error", who, e));
   }
 
+  let retries = 0;
   function ensurePeer() {                                     // the player's own peer, id rpsh-<code>
-    if (net.peer) return net.peer;
+    if (net.peer && !net.peer.destroyed) return net.peer;
     const p = net.peer = new Peer("rpsh-" + code, { config: ICE });
-    p.on("open", () => say("online as " + code));
-    p.on("error", e => { console.warn("peer error", e); if (e.type === "unavailable-id") say("code " + code + " already in use elsewhere"); });
+    p.on("open", () => { retries = 0; say("online as " + code); keepAwake(); });
+    p.on("disconnected", () => { say("reconnecting…"); setTimeout(() => { if (!p.destroyed) p.reconnect(); }, 1000); });   // broker socket dropped (phone slept): come back
+    p.on("error", e => {
+      console.warn("peer error", e);
+      if (e.type === "unavailable-id") {   // a stale registration from an earlier load of this page holds the code for up to a minute: retry
+        if (retries++ < 20) { say("code " + code + " still registered, retrying… (" + retries + ")"); p.destroy(); setTimeout(ensurePeer, 3000); }
+        else say("code " + code + " is in use elsewhere: close other tabs of this page");
+      } else if (e.type === "network" || e.type === "server-error") { say("broker unreachable, retrying…"); p.destroy(); setTimeout(ensurePeer, 3000); }
+    });
     p.on("connection", conn => {
       conn.on("open", () => {
         conn.once("data", m => {
@@ -83,15 +97,20 @@ export function createNet(cb) {
 
   net.linkScreen = targetCode => {                            // PC side: become the screen of the player with this code
     const p = net.peer = new Peer(undefined, { config: ICE });
-    say("connecting to " + targetCode + "…");
-    p.on("open", () => {
-      const conn = p.connect("rpsh-" + targetCode, { reliable: true });
-      conn.on("open", () => { conn.send({ t: "hello", role: "screen" }); say("linked to " + targetCode); });
+    let attempt = 0, conn = null;
+    const dial = () => {
+      attempt++; say(attempt === 1 ? "connecting to " + targetCode + "…" : `waiting for phone ${targetCode}… (${attempt}) open the page on the phone and keep it awake`);
+      conn = p.connect("rpsh-" + targetCode, { reliable: true });
+      conn.on("open", () => { conn.send({ t: "hello", role: "screen" }); say("linked to " + targetCode); keepAwake(); });
       conn.on("data", m => { net.stats.recv++; if (m?.t === "h") cb.hands?.(m, m.who || "me"); else if (m?.t === "g") cb.game?.(m, "player"); });
-      conn.on("close", () => say("link closed"));
+      conn.on("close", () => { say("phone disconnected, waiting…"); setTimeout(dial, 3000); });
       conn.on("error", e => say("link error: " + (e.type || e)));
+    };
+    p.on("open", dial);
+    p.on("error", e => {   // peer-unavailable = no phone registered under that code right now: keep trying, the phone may still be loading or asleep
+      if (e.type === "peer-unavailable") setTimeout(dial, 3000);
+      else say("link failed: " + (e.type || e));
     });
-    p.on("error", e => say("link failed: " + (e.type || e)));
   };
 
   net.sendHands = pkt => {                                    // pkt: { t:"h", who:"me", hands:[{n, a:[63], m}], ts }

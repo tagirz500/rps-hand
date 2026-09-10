@@ -21,7 +21,7 @@ async def run():
         await phone.wait_for_function("document.getElementById('net').textContent.startsWith('online as')", timeout=90000)
         code = {}
         async def on_phone_dialog(d):
-            code["v"] = re.search(r"Your code: (\d{6})", d.message).group(1); await d.dismiss()
+            code["v"] = re.search(r"Your code: (\d{3,6})", d.message).group(1); await d.dismiss()
         phone.once("dialog", on_phone_dialog)
         await phone.click("#link"); await asyncio.sleep(1)
         print("phone code from PC LINK prompt:", code.get("v"), "| net:", await phone.inner_text("#net"))
@@ -34,7 +34,7 @@ async def run():
             await d.accept(code["v"])
         pc.once("dialog", on_pc_dialog)
         await pc.click("#link")
-        await pc.wait_for_url(re.compile(r"screen=\d{6}"), timeout=15000)
+        await pc.wait_for_url(re.compile(r"screen=\d{3,6}"), timeout=15000)
         await pc.wait_for_function("document.getElementById('net').textContent.startsWith('linked to')", timeout=60000)
         print("PC after link:", pc.url, "|", await pc.inner_text("#net"), "| body.screen:", await pc.evaluate("document.body.classList.contains('screen')"))
         await asyncio.sleep(4)

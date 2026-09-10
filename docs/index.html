@@ -36,7 +36,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 28)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 30)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -58,7 +58,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode } from "./net.mjs";
 
-const BUILD = 28;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 30;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -776,8 +776,8 @@ function updateGame(now, move) {
 // PC LINK works before (and without) the camera: shows this device's code and, if another device's code is typed, reloads
 // this page as that device's screen. One prompt on every device: touch detection was unreliable on touchscreen laptops.
 $("link").onclick = () => {
-  const c = prompt(`Your code: ${myCode()}\n\nTo make THIS device the 3D screen of a phone, enter that phone's 6-digit code (its PC LINK shows it). Leave empty to just keep your code.`, "");
-  if (c && /^\d{6}$/.test(c.trim())) location.search = "?screen=" + c.trim();
+  const c = prompt(`Your code: ${myCode()}\n\nTo make THIS device the 3D screen of a phone, enter that phone's 3-digit code (its PC LINK shows it). The phone must show "online as <code>" and stay awake. Leave empty to just keep your code.`, "");
+  if (c && /^\d{3,6}$/.test(c.trim())) location.search = "?screen=" + c.trim();
 };
 const MODES = ["predict", "smooth", "raw"];   // predict = filter + velocity lead, smooth = filter only, raw = latest tracker result
 const shape = toVecs;   // the 3D model is the tracked geometry itself, so its lines match the video lines exactly
@@ -795,6 +795,12 @@ async function screenMain() {   // the PC: no camera, no tracker; render the lin
 }
 async function main() {
   if (SCREEN) return screenMain();
+  net = createNet({   // register this phone's code at the broker right away, so a PC can link while the tracker is still loading
+    status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
+    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; },
+    lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
+  });
+  net.start();
   let video = $("cam");
   const imgSrc = Q.get("img");  // ?img=victory.jpg = self-check without a camera
   const vidSrc = Q.get("video");   // ?video=test/handwash.webm = self-check on a looping clip
@@ -806,7 +812,7 @@ async function main() {
   } else try {
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } }, audio: false });
     await new Promise(r => video.onloadedmetadata = r);
-  } catch (e) { $("status").textContent = "No camera here (" + e.message + ").\n\nOn a phone: allow the camera and reload.\nOn a PC: tap PC LINK (right) and enter the code your phone shows under its own PC LINK - this PC then becomes the phone's 3D screen."; return; }
+  } catch (e) { $("status").textContent = "No camera here (" + e.message + ").\n\nOn a phone: allow the camera and reload.\nOn a PC: tap PC LINK (right) and enter the 3-digit code your phone shows under its own PC LINK - this PC then becomes the phone's 3D screen."; return; }
 
   frameW = video.videoWidth || video.naturalWidth || frameW; frameH = video.videoHeight || video.naturalHeight || frameH;
   const tracker = await makeTracker();
@@ -822,12 +828,6 @@ async function main() {
     renderer.compile(scene, camera); for (const s of Object.values(slots)) s.hand.hide();
   }
   $("status").remove();
-  net = createNet({
-    status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
-    matched: () => { $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; },
-    lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
-  });
-  net.start();
   $("online").onclick = () => { if (net.opp) return; $("online").textContent = "ONLINE: searching"; net.findMatch(); };
   $("play").onclick = () => { if (net.opp && game.phase === "idle") { net.sendGame({ a: "start" }); gameStart(performance.now()); } };
   if (SKIN) loadSkin(SKIN_URL.replace(/\.glb$/, "_hi.glb")).then(hi => { SKIN_HI = hi; for (const h of hands) h.addHi(hi); }).catch(() => {});   // high-detail mesh, if this export has one

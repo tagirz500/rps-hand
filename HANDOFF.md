@@ -871,3 +871,15 @@ before the buttons were wired. Now `#link` is wired at module level (one prompt 
 device's code, and a typed 6-digit code reloads the page as `?screen=<code>`), and the no-camera status text
 explains exactly that. `web_link_test.py` proves it: a camera-less page links to a phone page by code and the
 phone reports "PC linked".
+
+### 27c. Builds 29-30: link order independence, 3-digit codes (2026-09-10, night)
+
+Owner's PC showed "link failed: peer-unavailable" with the right code: the phone was not registered at the broker
+at that moment (its peer only started after the tracker + mesh loaded; iOS drops the broker socket when the
+screen locks; a previous load can hold the id for up to a minute). Build 29: the phone registers its code the
+moment the page opens; `unavailable-id` and network errors retry every 3 s; `disconnected` reconnects; a screen
+Wake Lock is requested once online and on return to the foreground; the PC side keeps dialling every 3 s on
+`peer-unavailable` ("waiting for phone <code>… open the page on the phone and keep it awake") and re-dials
+when the connection closes. Build 30: codes are 3 digits (`CODE_LEN` in net.mjs, localStorage `rpsh_code3`);
+the PC prompt accepts 3-6 digits. `web_link_order_test.py`: PC enters the code before the phone page exists,
+links 2.8 s after the phone opens, survives a phone reload.
