@@ -1143,6 +1143,7 @@ revolver), and `NHANDS` default 1 (this app needs both hands; `?hands=1` is ther
 | `[face woman_hands]` / `[face seated_desk]` in `web_hard_test.py` | FAIL (our page had no `dbg.head`) | **OK** reproj 0.40 % / 0.21 %, depth 0.49 m / 0.97 m |
 | `web_gun_test.py` fist pickup | the revolver fell on the floor within a second | **holder Right**, held |
 | `web_lobby_test.py`, `web_net_test.py` | - | lobby, quick match, screen link and a full round pass on the live site |
+| `?face=0` A/B (wave / counting) | - | tracker 17-18 ms and 28/30 fps without the head, 22-23 ms and 28/30 fps with it: ~5 ms, no frames lost |
 
 Two other things fixed while testing:
 - **The revolver fell out of your hand.** `gunUpdate` dropped it the instant the holder's hand was missing from one
