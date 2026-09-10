@@ -5,7 +5,7 @@ from playwright.async_api import async_playwright
 
 BASE = os.environ.get("RPS_BASE", "http://localhost:8765/")
 ARGS = ["--enable-gpu", "--ignore-gpu-blocklist", "--autoplay-policy=no-user-gesture-required"]
-POS = "() => ({ p: camDbg.camera.position.toArray().map(v => +v.toFixed(3)), fov: +camDbg.camera.fov.toFixed(1), view: document.getElementById('view').textContent })"
+POS = "() => ({ cam: camDbg.camera.position.toArray().map(v => +v.toFixed(3)), world: camDbg.world.position.toArray().map(v => +v.toFixed(3)), fov: +camDbg.camera.fov.toFixed(1), view: document.getElementById('view').textContent })"
 SET = """([id, v]) => { const i = document.getElementById(id); i.value = v; i.dispatchEvent(new Event('input')); }"""
 
 
@@ -20,12 +20,12 @@ async def run():
         await pg.goto(BASE + "?img=test/robbie_v.jpg&role=both", wait_until="load")
         await pg.wait_for_function("!document.getElementById('status')", timeout=90000)
         await pg.click("#camBtn")
-        print("mirror, untouched:", await pg.evaluate(POS), "(0,0,0 = the phone itself)")
+        print("mirror, untouched:", await pg.evaluate(POS), "(camera exactly at the phone)")
         print("   FOV row disabled in mirror:", await pg.evaluate("() => document.getElementById('cFov').disabled"),
               "| shows:", await pg.inner_text("#vFov"))
         await pg.evaluate(SET, ["cHeight", 0.3]); await pg.evaluate(SET, ["cBack", 0.8]); await pg.evaluate(SET, ["cTilt", -0.2])
         await asyncio.sleep(0.5)
-        print("mirror, moved:", await pg.evaluate(POS), "| height reads", await pg.inner_text("#vHeight"), "| tilt reads", await pg.inner_text("#vTilt"))
+        print("mirror, moved (HEIGHT drops the eye so the picture rises):", await pg.evaluate(POS), "| height reads", await pg.inner_text("#vHeight"), "| tilt reads", await pg.inner_text("#vTilt"))
         # first person keeps its own numbers
         await pg.click("#view"); await asyncio.sleep(0.5)
         print("first person:", await pg.evaluate(POS), "| height reads", await pg.inner_text("#vHeight"), "| FOV enabled:", not await pg.evaluate("() => document.getElementById('cFov').disabled"))

@@ -60,7 +60,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 47)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 48)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -74,7 +74,7 @@
       <label>HEIGHT <input id="cHeight" type="range" min="0" max="0.7" step="0.01"><span id="vHeight"></span></label>
       <label>BACK <input id="cBack" type="range" min="0.1" max="1.5" step="0.01"><span id="vBack"></span></label>
       <label>TILT <input id="cTilt" type="range" min="-0.8" max="0.5" step="0.01"><span id="vTilt"></span></label>
-      <div style="color:#9aa4b8">CAM FOV = the phone camera's real field of view (framing + depth). FOV, HEIGHT, BACK, TILT move the view you are in NOW - first person and mirror keep their own. In the mirror, 0/0/0 is exactly where the phone is. Saved on this device</div>
+      <div style="color:#9aa4b8">CAM FOV = the phone camera's real field of view (framing + depth). FOV, HEIGHT, BACK, TILT belong to the view you are in NOW - first person and mirror keep their own. In the MIRROR, HEIGHT raises your hands and head in the picture, BACK moves the view away, TILT aims it (0/0/0 = exactly what the camera sees). Saved on this device</div>
     </div>
     <button id="mode">MODE: predict</button>
     <button id="online">ONLINE</button>
@@ -100,7 +100,7 @@ import { OBJLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/j
 import { HeadView } from "./head/HeadView.js";
 import { rotation as faceRotation } from "./head/spatial.mjs";
 
-const BUILD = 47;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 48;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -506,7 +506,7 @@ function camUI() {
 }
 $("camBtn").onclick = () => { const p = $("camp"); p.hidden = !p.hidden; if (!p.hidden) camUI(); };
 const hf = $("cHfov"); hf.oninput = () => { HFOV = +hf.value * Math.PI / 180; if (head) head.hfov = HFOV; $("vHfov").textContent = hf.value + "°"; try { localStorage.setItem("rpsh_hfov", hf.value); } catch {} applyView(true); };
-window.camDbg = { CAM, MCAM, get camera() { return camera; } };
+window.camDbg = { CAM, MCAM, get camera() { return camera; }, get world() { return worldGroup; } };
 const VIEWS = ["first person", "mirror"]; let view = Q.get("img") || Q.get("video") ? 1 : 0;   // live camera: first person; test stills/clips: mirror   // mirror = the room seen from the phone, mirrored like the video
 $("view").onclick = () => { view = (view + 1) % VIEWS.length; $("view").textContent = "VIEW: " + VIEWS[view]; applyView(true); if (!$("camp").hidden) camUI(); };   // the panel follows the view it edits
 function applyView(force) {
@@ -525,12 +525,13 @@ function applyView(force) {
     camera.updateProjectionMatrix();
   }
   const dbgCam = Q.get("cam")?.split(",").map(Number);   // ?cam=x,y,z,tx,ty,tz: fixed debug camera (renders checks of the hand mesh)
+  worldGroup.position.set(0, 0, 0);   // only the mirror moves it (below)
   if (dbgCam) { camera.position.set(dbgCam[0], dbgCam[1], dbgCam[2]); camera.lookAt(dbgCam[3], dbgCam[4], dbgCam[5]); worldGroup.scale.x = 1; }
   else if (fp) { camera.position.set(0, CAM.height, eyeZ); camera.lookAt(0, CAM.tilt, 0.6); worldGroup.scale.x = 1; }   // eyes 35 cm above the phone axis and behind my hands (see eyeZ), looking down the table at the targets
-  else {   // looks where the phone looks; at 0/0/0 the camera IS the phone, so the render lies on the video one to one
-    const a = pitch + MCAM.tilt;
-    camera.position.set(0, MCAM.height, MCAM.back);
-    camera.lookAt(0, MCAM.height + Math.sin(a), MCAM.back - Math.cos(a)); worldGroup.scale.x = -1;
+  else {   // HEIGHT raises your hands and head in the picture: the eye drops below the phone by that much, so the whole
+    const a = pitch + MCAM.tilt;                       // room stays together (lifting only the hands left the floor behind).
+    camera.position.set(0, -MCAM.height, MCAM.back);   // BACK pulls the view away, TILT aims it. 0/0/0 = the phone itself.
+    camera.lookAt(0, -MCAM.height + Math.sin(a), MCAM.back - Math.cos(a)); worldGroup.scale.x = -1;
   }
 }
 scene.add(new THREE.HemisphereLight(0xfff4e6, 0x2c3448, 0.5));
@@ -1144,11 +1145,17 @@ $("link").onclick = () => {
 };
 let pendingLink = PAIR;
 function renderRooms(list) {
-  const box = $("rooms"); box.innerHTML = list.length ? "" : "open lobbies: none (create one or QUICK MATCH)";
-  for (const r of list) { const row = document.createElement("div"); row.innerHTML = `<span>Lobby ${r.k} - host ${r.host}</span>`; const b = document.createElement("button"); b.className = "lb go"; b.textContent = "JOIN"; b.onclick = () => net.joinRoom(r.k); row.appendChild(b); box.appendChild(row); }
+  const box = $("rooms"); box.innerHTML = "";
+  if (net?.room) { const mine = document.createElement("div"); mine.style.color = "#78ff78"; mine.textContent = `YOUR lobby ${net.room.k} is open - waiting for someone to join`; box.appendChild(mine); }
+  if (!list.length) { const none = document.createElement("div"); none.textContent = net?.room ? "no other lobby open yet" : "open lobbies: none (CREATE LOBBY or QUICK MATCH)"; box.appendChild(none); }
+  for (const r of list) { const row = document.createElement("div"); row.innerHTML = `<span>Lobby ${r.k} - host ${r.host}</span>`; const b = document.createElement("button"); b.className = "lb go"; b.textContent = "JOIN"; b.onclick = () => { setSearching(false); net.joinRoom(r.k); }; row.appendChild(b); box.appendChild(row); }
 }
-$("online").onclick = () => { if (net?.opp) return; const l = $("lobby"); l.hidden = !l.hidden; if (!l.hidden) net?.listRooms(); };
-$("closeLobby").onclick = () => $("lobby").hidden = true;
+// The list is only useful if it is live: while the panel is open, look again every few seconds so a lobby your
+// brother opens shows up on its own. (While OUR room waits, net.mjs is probing anyway and that feeds the same list.)
+let roomPoll = 0;
+function pollRooms(on) { clearInterval(roomPoll); if (on) roomPoll = setInterval(() => { if (!$("lobby").hidden && !net?.opp) net?.listRooms(); }, 5000); }
+$("online").onclick = () => { if (net?.opp) return; const l = $("lobby"); l.hidden = !l.hidden; if (!l.hidden) { $("rooms").textContent = "looking for lobbies…"; net?.listRooms(); } pollRooms(!l.hidden); };
+$("closeLobby").onclick = () => { $("lobby").hidden = true; pollRooms(false); };   // the search itself keeps running; STOP SEARCHING ends it
 $("refresh").onclick = () => { $("rooms").textContent = "searching…"; net?.listRooms(); };
 // Waiting for an opponent has to be escapable: while a search or an open lobby is running, both buttons say STOP.
 let searching = false;
@@ -1159,10 +1166,10 @@ function setSearching(on) {
   $("quick").classList.toggle("go", !on);   // the green highlight belongs to the action, not to the cancel
 }
 function stopSearching(text = "search stopped") {
-  net?.leaveRoom(); setSearching(false); $("rooms").textContent = text; $("net").textContent = "ONLINE";
+  net?.leaveRoom(true); setSearching(false); $("rooms").textContent = text; $("net").textContent = "ONLINE"; net?.listRooms();
 }
-$("quick").onclick = () => { if (searching) return stopSearching(); setSearching(true); $("rooms").textContent = "searching…"; net?.quickMatch(); };
-$("create").onclick = () => { if (searching) return stopSearching(); setSearching(true); net?.createRoom(); };
+$("quick").onclick = () => { if (searching) return stopSearching(); setSearching(true); $("rooms").textContent = "looking for a player…"; net?.quickMatch(); };
+$("create").onclick = () => { if (searching) return stopSearching(); setSearching(true); $("rooms").textContent = "opening your lobby…"; net.seeking = true; net?.createRoom(); };
 const MODES = ["predict", "smooth", "raw"];   // predict = filter + velocity lead, smooth = filter only, raw = latest tracker result
 const shape = toVecs;   // the 3D model is the tracked geometry itself, so its lines match the video lines exactly
 let mode = 0;
@@ -1187,7 +1194,7 @@ async function main() {
   if (SCREEN) return screenMain();
   net = createNet({   // register this phone's code at the broker right away, so a PC can link while the tracker is still loading
     status: t => $("net").textContent = t, hands: onHands, game: gameMsg, rooms: renderRooms,
-    matched: () => { setSearching(false); $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; $("lobby").hidden = true; },
+    matched: () => { setSearching(false); pollRooms(false); $("play").style.display = "block"; $("online").textContent = "ONLINE: matched"; $("lobby").hidden = true; },
     lost: who => { if (who === "opp") { $("play").style.display = "none"; $("online").textContent = "ONLINE"; for (const [k, r] of remote) if (k.startsWith("opp")) r.hand.hide(); } },
   });
   net.start();

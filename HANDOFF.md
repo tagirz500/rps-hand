@@ -1189,3 +1189,33 @@ Owner: "make so i can stop quick match" and "the setting in cam like height shou
 - Checked with `scratchpad/cam_mirror_test.py`: untouched mirror camera at (0, 0, 0); after HEIGHT 0.3 / BACK 0.8 /
   TILT -0.2 it is at (0, 0.3, 0.8) and TILT reads -11 deg; switching to first person restores 0.35 m and re-enables
   FOV; switching back restores the mirror's numbers; a reload keeps them.
+
+## 35. Build 48: two people pressing QUICK MATCH at the same time now meet (2026-09-11)
+
+Owner: "both me and my brother play quick match and that's the only thing that's working. It says lobby two open,
+waiting for a player. The button create lobby doesn't work. There's no lobby list. I just wanna see us, just hands
+being together."
+
+**The real bug.** `quickMatch` probed the eight room ids once, and opened its own room if it found none. Two people
+pressing within the same probe window therefore both found nothing and both opened a room - lobby 1 and lobby 2 -
+and then waited for each other forever. Nothing ever looked again.
+
+**Fix (docs/net.mjs).** While a room of ours is open and unmatched, re-probe every 5 s: if an open room with a LOWER
+id exists, leave ours and join it. Lowest id always wins, so the two sides can never swap past each other. A join
+that goes unanswered for 8 s re-opens our own room (`net.seeking`), so a failed join cannot leave a player with
+nothing. `becomeOpp` clears `seeking`; `leaveRoom(true)` (the STOP button) clears it too.
+Measured with the new `web_race_test.py`: both press QUICK MATCH in the same tick, A takes lobby 1 and B lobby 3, and
+they are matched **11 s later** with each other's hands arriving (`A sees ['opp:Right']`, `B sees ['opp:Right',
+'opp:Left']`).
+
+**The lobby list is live now.** While the ONLINE panel is open the page re-lists every 5 s (`pollRooms`), so a lobby
+your brother opens appears without pressing REFRESH - verified in `web_race_test.py` ("D's list without pressing
+REFRESH: Lobby 1 - host 138 JOIN"). The list also shows YOUR own open lobby in green ("YOUR lobby 1 is open -
+waiting for someone to join"), which is what was missing when CREATE LOBBY looked like it did nothing: it worked,
+it just said nothing. JOIN clears the searching state.
+
+**Mirror HEIGHT.** Build 47 moved the mirror CAMERA up, which pushes the hands and the mask DOWN the screen - the
+opposite of what was asked. Lifting the objects instead left the floor behind (the floor and walls are in `scene`,
+the hands, face and props in `worldGroup`), so the stand floated. The eye now drops by HEIGHT instead: the whole
+room stays together and the hands and mask rise in the picture. `web_cam_test.py` checks the camera lands at
+`(0, -0.3, 0.8)` for HEIGHT 0.3 / BACK 0.8 and that each view keeps its own numbers across a reload.

@@ -19,6 +19,8 @@ app, plus multiplayer, lobbies, screen pairing by QR, the revolver, targets, web
      python web_gun_test.py                            (revolver on its stand, targets, webs, screen role)
      python web_face_test.py                           (head tracking + mask on photos, first person hides it, screen relay; face_*.png renders)
      python web_net_test.py                            (two players match, a PC screen links, one round over the wire)
+     python web_race_test.py                           (both press QUICK MATCH at once - they must still meet; live lobby list)
+     python web_cam_test.py                            (CAM sliders per view, the mirror's own HEIGHT/BACK/TILT)
      node --test docs/movement/*.test.mjs docs/test/*.test.mjs   (the fork's movement + the head/body unit tests)
    Numbers only compare between runs on the SAME PC (tracker fps differs per GPU), and the rps clip starts
    at a random point per run.

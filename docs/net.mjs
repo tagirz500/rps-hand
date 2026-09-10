@@ -16,6 +16,7 @@ const ICE = { iceServers: [
 ] };
 const ROOMS = 8;                 // ids rpsh-room-1..8 are probed for the lobby list
 const PROBE_MS = 2500;
+const REMATCH_MS = 5000;         // while our own room waits, look again this often (two rooms opened at once resolve into one)
 const CODE_LEN = 3;              // owner: 3 digits are enough to type across the room
 const rnd = () => String(Math.floor(10 ** (CODE_LEN - 1) + Math.random() * 9 * 10 ** (CODE_LEN - 1)));
 let wake = null;
@@ -48,7 +49,7 @@ export function createNet(cb) {
     conn.on("close", () => { if (net[who] === conn) { net[who] = null; cb.lost?.(who); say(who === "opp" ? "opponent left" : "screen disconnected"); } });
     conn.on("error", e => console.warn("conn error", who, e));
   }
-  function becomeOpp(conn, role) { net.opp = conn; wire(conn, "opp"); net.host = role === "host"; say("matched (" + role + ")"); cb.matched?.(role); }
+  function becomeOpp(conn, role) { net.seeking = false; net.opp = conn; wire(conn, "opp"); net.host = role === "host"; say("matched (" + role + ")"); cb.matched?.(role); }
 
   let retries = 0;
   function ensurePeer() {                                     // the player's own peer, id rpsh-<code>
@@ -142,6 +143,14 @@ export function createNet(cb) {
     const id = "rpsh-room-" + k, room = new Peer(id, { config: ICE });
     room.on("open", () => {
       net.room = { peer: room, k, open: true }; say("lobby " + k + " open, waiting for a player… (your code " + code + ")"); cb.roomOpen?.(k);
+      // Two players pressing QUICK MATCH at the same moment both find nothing and both open a room, and would then
+      // wait for each other forever. So keep looking while we wait: the LOWER room id wins and the other side joins
+      // it, which also refreshes everyone's lobby list for free.
+      net.room.rematch = setInterval(async () => {
+        if (net.opp || net.room?.k !== k) return;
+        const lower = (await net.listRooms()).find(r => r.k < k);
+        if (lower && net.room?.k === k && net.room.open && !net.opp) { net.leaveRoom(); net.joinRoom(lower.k); }
+      }, REMATCH_MS);
       room.on("connection", c => c.on("open", () => c.once("data", m => {
         if (m?.t === "probe") { c.send({ t: "room", k, host: code, open: !!net.room?.open && !net.opp }); setTimeout(() => c.close(), 300); return; }
         if (m?.t === "join" && m.code && net.room?.open && !net.opp) {
@@ -154,7 +163,7 @@ export function createNet(cb) {
     });
     room.on("error", e => { if (e.type === "unavailable-id") { room.destroy(); net.createRoom(k + 1); } else if (e.type !== "peer-unavailable") console.warn("room error", e); });
   };
-  net.leaveRoom = () => { if (net.room) { net.room.peer.destroy(); net.room = null; } };
+  net.leaveRoom = (stop = false) => { if (stop) net.seeking = false; if (net.room) { clearInterval(net.room.rematch); net.room.peer.destroy(); net.room = null; } };
 
   net.listRooms = () => new Promise(res => whenOpen(() => {   // probe every room id; open rooms answer within PROBE_MS
     const found = [], conns = [];
@@ -170,12 +179,12 @@ export function createNet(cb) {
     say("joining lobby " + k + "…");
     const c = net.peer.connect("rpsh-room-" + k, { reliable: true });
     c.on("open", () => c.send({ t: "join", code }));
-    setTimeout(() => { if (!net.opp) { say("lobby " + k + " did not answer"); try { c.close(); } catch {} } }, 8000);
+    setTimeout(() => { if (!net.opp) { say("lobby " + k + " did not answer"); try { c.close(); } catch {} if (net.seeking && !net.room) net.createRoom(); } }, 8000);   // back to waiting in our own lobby
   });
 
   net.quickMatch = async () => {                              // first open room, else open one and wait
     if (net.opp) return;
-    say("looking for a player…");
+    net.seeking = true; say("looking for a player…");
     const list = await net.listRooms();
     if (list.length) net.joinRoom(list[0].k); else net.createRoom();
   };
