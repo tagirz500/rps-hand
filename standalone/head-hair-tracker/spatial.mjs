@@ -1,0 +1,135 @@
+// Canonical points from Google MediaPipe canonical_face_model.obj (Apache-2.0).
+// Source: https://github.com/google-ai-edge/mediapipe/blob/master/mediapipe/modules/face_geometry/data/canonical_face_model.obj
+// Convert centimetres, Y-up/Z-out to eye-centred Y-down/Z-away; scale outer eyes to 90mm.
+const source=[
+ [33,-4.445859,2.663991,3.173422],[263,4.445859,2.663991,3.173422],
+ [133,-1.856432,2.585245,3.757904],[362,1.856432,2.585245,3.757904],
+ [168,0,3.271027,5.236015],[6,0,2.473255,5.788627],[197,0,1.728369,6.316750],
+ [195,0,1.059413,6.774605],[5,0,.365669,7.242870],[4,0,-.463170,7.586580],
+ [1,0,-1.126865,7.475604],[10,0,8.261778,4.481535],[151,0,6.545390,5.027311],
+ [109,-1.891399,8.236377,4.274997],[338,1.891399,8.236377,4.274997],
+ [67,-3.523964,8.005976,3.729163],[297,3.523964,8.005976,3.729163],
+ [54,-6.279331,6.615427,1.425850],[284,6.279331,6.615427,1.425850],
+ [127,-7.743095,2.364999,-2.005167],[356,7.743095,2.364999,-2.005167],
+ [234,-7.664182,.673132,-2.435867],[454,7.664182,.673132,-2.435867]
+];
+export const template=source.map(([id,x,y,z])=>({id,point:[x,2.663991-y,3.173422-z].map(v=>v*.09/8.891718)}));
+const bound=(v,a,b)=>Math.max(a,Math.min(b,v));
+export const median=a=>[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)];
+const angleDistance=(a,b)=>{
+ if(!a?.parameters||!b?.parameters)return 0;
+ const x=rotation(a.parameters),y=rotation(b.parameters);
+ return Math.acos(bound((x.reduce((s,v,i)=>s+v*y[i],0)-1)/2,-1,1));
+};
+export function rotation([rx,ry,rz]){
+ const a=Math.cos(rx),b=Math.sin(rx),c=Math.cos(ry),d=Math.sin(ry),e=Math.cos(rz),f=Math.sin(rz);
+ return [e*c,e*d*b-f*a,e*d*a+f*b,f*c,f*d*b+e*a,f*d*a-e*b,-d,c*b,c*a];
+}
+export function project(point,parameters,focal){
+ const r=rotation(parameters),[x,y,z]=point;
+ const X=r[0]*x+r[1]*y+r[2]*z+parameters[3],Y=r[3]*x+r[4]*y+r[5]*z+parameters[4],Z=r[6]*x+r[7]*y+r[8]*z+parameters[5];
+ return [focal*X/Z,focal*Y/Z];
+}
+function solve(a,b){
+ const rows=a.map((r,i)=>[...r,b[i]]),n=b.length;
+ for(let k=0;k<n;k++){
+  let pivot=k;for(let i=k+1;i<n;i++)if(Math.abs(rows[i][k])>Math.abs(rows[pivot][k]))pivot=i;
+  [rows[k],rows[pivot]]=[rows[pivot],rows[k]];
+  if(Math.abs(rows[k][k])<1e-12)return null;
+  const div=rows[k][k];for(let j=k;j<=n;j++)rows[k][j]/=div;
+  for(let i=0;i<n;i++)if(i!==k){const v=rows[i][k];for(let j=k;j<=n;j++)rows[i][j]-=v*rows[k][j];}
+ }
+ return rows.map(r=>r[n]);
+}
+
+// Small six-parameter perspective fit; no second vision model or extra WASM.
+// Robust weighted LM jointly fits orientation and eye-origin translation.
+export function fitHead(points,aspect,prior,hfov=Math.PI/3,previous=null){
+ if(!prior||!Number.isFinite(aspect)||aspect<=0||prior.span<.025)return null;
+ // FaceLandmarker can predict a cropped landmark slightly outside the image.
+ // Keep those predictions near an edge, but give them less influence than pixels
+ // that are actually visible. A previous fit stabilizes the reduced half-face fit.
+ const samples=template.filter(({id})=>points[id]&&[points[id].x,points[id].y].every(Number.isFinite)&&points[id].x>=-.32&&points[id].x<=1.32&&points[id].y>=-.32&&points[id].y<=1.32)
+  .map(({id,point})=>{const p=points[id],outside=Math.max(0,-p.x,p.x-1,-p.y,p.y-1);return {point,uv:[p.x-.5,(p.y-.5)/aspect],confidence:outside?Math.max(.18,1-outside/.38):1};});
+ const visible=samples.filter(({confidence})=>confidence===1).length;
+ if(samples.length<(previous?8:12)||visible<(previous?4:8))return null;
+ const focal=1/(2*Math.tan(hfov/2)),depth=bound(focal*.09/prior.span,.18,2);
+ const fresh=[-prior.pitch,prior.yaw,Math.atan2((points[263].y-points[33].y)/aspect,points[263].x-points[33].x),(prior.centerX-.5)*depth/focal,(prior.centerY-.5)*depth/(focal*aspect),depth];
+ const residual=p=>samples.flatMap(({point,uv})=>project(point,p,focal).map((v,i)=>v-uv[i]));
+ const cost=rs=>rs.reduce((sum,r,i)=>{const w=samples[Math.floor(i/2)].confidence;return sum+w*(Math.abs(r)<=.008?r*r:.016*Math.abs(r)-.000064);},0);
+ let p=previous&&cost(residual(previous))<cost(residual(fresh))?[...previous]:fresh,lambda=.0001;
+ for(let iter=0;iter<14;iter++){
+  const rs=residual(p),cols=p.map((_,j)=>{const q=[...p],eps=j<3?1e-4:1e-5;q[j]+=eps;return residual(q).map((v,i)=>(v-rs[i])/eps);});
+  const a=Array.from({length:6},()=>Array(6).fill(0)),b=Array(6).fill(0);
+  for(let i=0;i<rs.length;i++){
+   const w=samples[Math.floor(i/2)].confidence*Math.min(1,.008/Math.max(1e-9,Math.abs(rs[i])));
+   for(let j=0;j<6;j++){b[j]-=w*cols[j][i]*rs[i];for(let k=0;k<6;k++)a[j][k]+=w*cols[j][i]*cols[k][i];}
+  }
+  for(let j=0;j<6;j++)a[j][j]+=lambda*(1+a[j][j]);
+  const step=solve(a,b);if(!step)break;
+  const candidate=p.map((v,i)=>v+bound(step[i],i<3?-.3:-.12,i<3?.3:.12));candidate[5]=bound(candidate[5],.15,2.5);
+  if(cost(residual(candidate))<cost(rs)){p=candidate;lambda=Math.max(1e-7,lambda*.3);if(Math.hypot(...step)<1e-6)break;}
+  else lambda*=10;
+ }
+ const rs=residual(p),error=Math.sqrt(rs.reduce((s,r)=>s+r*r,0)/samples.length),r=rotation(p);
+ if(!p.every(Number.isFinite)||error>Math.min(.025,prior.span*.12)||p[5]<.18||p[5]>2||r[8]<.25)return null;
+ const inliers=rs.reduce((n,v,i)=>n+(Math.abs(v)<.014?samples[Math.floor(i/2)].confidence:0),0)/rs.reduce((n,_,i)=>n+samples[Math.floor(i/2)].confidence,0);
+ const edge=Math.min(points[33]?.x??.5,1-(points[33]?.x??.5),points[263]?.x??.5,1-(points[263]?.x??.5));
+ if(inliers<(visible<12?.62:.72))return null;
+ return {position:p.slice(3),yaw:Math.atan2(r[2],r[8]),pitch:Math.atan2(r[5],Math.hypot(r[2],r[8])),error,quality:inliers,visiblePoints:visible,edge,parameters:p};
+}
+
+export class SpatialPose{
+ constructor(){this.neutral=null;this.scale=1;this.seen=-Infinity;this.target=[0,0,0];this.eye=[0,0,0];this.velocity=[0,0,0];this.latest=null;this.pending=null;this.recoveryUntil=0;}
+ recenter(){this.neutral=null;this.target=[0,0,0];this.eye=[0,0,0];this.velocity=[0,0,0];this.latest=null;this.pending=null;this.seen=-Infinity;}
+ calibrate(samples,distance=null){
+  const center=[0,1,2].map(i=>median(samples.map(s=>s.position[i])));
+  this.neutral=center;this.scale=distance?bound(distance/center[2],.4,2.5):1;this.target=[0,0,0];this.eye=[0,0,0];
+ }
+ receive(fit,now){
+  const requiredQuality=(fit?.visiblePoints??23)<12?.62:.72;
+  if(!fit||fit.position?.length!==3||!fit.position.every(Number.isFinite)||fit.position[2]<.18||fit.position[2]>2||(fit.quality??1)<requiredQuality)return false;
+  if(this.latest){
+   const elapsed=(now-this.seen)/1000,jump=Math.hypot(...fit.position.map((v,i)=>v-this.latest.position[i]));
+   // Corroborate isolated jumps with another camera frame; preserve fast normal motion.
+   if(jump>Math.max(.07,Math.min(.15,elapsed*2.5))||angleDistance(fit,this.latest)>Math.max(.4,Math.min(.8,elapsed*10))){
+    const confirmed=this.pending&&now-this.pending.now<250&&Math.hypot(...fit.position.map((v,i)=>v-this.pending.fit.position[i]))<.045&&angleDistance(fit,this.pending.fit)<.2;
+    if(!confirmed){this.pending={fit,now};return false;}
+   }
+   if(now-this.seen>650)this.recoveryUntil=now+350;
+  }
+  this.pending=null;
+  const previousSeen=this.seen;this.latest=fit;this.seen=now;this.neutral??=[...fit.position];
+  const raw=fit.position.map((v,i)=>(v-this.neutral[i])*this.scale*(i<2?-1:1));
+  const next=raw.map((v,i)=>bound(v,i===1?-.3:-.5,i===1?.3:.5));
+  const elapsed=(now-previousSeen)/1000;
+  if(Number.isFinite(elapsed)&&elapsed>.008&&elapsed<.25)this.velocity=next.map((v,i)=>bound((v-this.target[i])/elapsed,-1.2,1.2)*.45+this.velocity[i]*.55);
+  else this.velocity=[0,0,0];
+  this.target=next;
+  return true;
+ }
+ update(now,dt,enabled=true){
+  // Hold position through loss rather than moving the player back to the origin.
+  const age=Math.max(0,(now-this.seen)/1000),coast=.12*(1-Math.exp(-Math.min(age,.38)/.12));
+  const target=enabled?this.target.map((v,i)=>bound(v+this.velocity[i]*coast,i===1?-.3:-.5,i===1?.3:.5)):[0,0,0];
+  const moving=Math.hypot(...target.map((v,i)=>v-this.eye[i]))>.008;
+  const a=1-Math.exp(-Math.min(dt,.1)/(now<this.recoveryUntil?.12:moving?.016:.055));
+  this.eye=this.eye.map((v,i)=>enabled?v+(target[i]-v)*a:0);return this.eye;
+ }
+}
+
+// Requires stable, fresh samples spanning real time, not repeated render frames.
+export class NeutralCapture{
+ constructor(){this.samples=[];this.started=null;this.lastStamp=-1;}
+ add(fit,stamp,now){
+  if(!fit||now-stamp>300){this.samples=[];this.started=null;return false;}
+  if(stamp===this.lastStamp)return false;this.lastStamp=stamp;
+  const recent=this.samples.slice(-8),mean=recent.length?[0,1,2].map(i=>median(recent.map(s=>s.position[i]))):fit.position;
+  if(recent.length&& (Math.hypot(...fit.position.map((v,i)=>v-mean[i]))>.015||angleDistance(fit,recent[0])>.1||Math.abs(fit.yaw-median(recent.map(s=>s.yaw)))>.1||Math.abs(fit.pitch-median(recent.map(s=>s.pitch)))>.1)){
+   this.samples=[];this.started=null;
+  }
+  this.started??=now;this.samples.push(fit);
+  return now-this.started>=2200&&this.samples.length>=16;
+ }
+ progress(now){return this.started===null?0:Math.min(1,(now-this.started)/2200);}
+}
