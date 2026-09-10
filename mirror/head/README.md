@@ -6,7 +6,9 @@ removed from this route. Do not restore them without a new explicit request.
 Historical hand work is recoverable from Git history.
 
 Rotation and translation remain independent. Default turn sensitivity is 1.5x.
-Position uses 2x estimated physical movement with bounded travel. Third person
+Left/right and forward/back position each have a separate 0-4x slider (default 2x).
+Zero disables that movement axis; higher values increase travel for the same lean.
+They apply immediately, independently of head turn and vertical movement. Travel stays bounded. Third person
 shows the head from an external camera; first person includes its mirror reflection.
 
 Latency changes: capture cap raised from 10fps to about 30fps; request a 60fps

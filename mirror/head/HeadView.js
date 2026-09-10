@@ -1,11 +1,12 @@
-import { ViewPose, WindowPose, windowFrustum, firstPersonOrigin, gentleHeadTranslation } from './pose.mjs?v=fast7';
+import { ViewPose, WindowPose, windowFrustum, firstPersonOrigin, gentleHeadTranslation } from './pose.mjs?v=move8';
 
 export class HeadView {
-  constructor(video, camera, { mode, recenter, status, sensitivity, hfov = Math.PI/3 }) {
+  constructor(video, camera, { mode, recenter, status, sensitivity, lateralSensitivity, depthSensitivity, hfov = Math.PI/3 }) {
     this.video = video; this.camera = camera; this.status = status;
     this.pose = new ViewPose(); this.window = new WindowPose(); this.mode = mode.value; this.hfov = hfov; this.busy = false; this.ready = false; this.failed = false;
     this.pose.mode = this.mode;
     this.sensitivity=sensitivity;
+    this.lateralSensitivity=lateralSensitivity; this.depthSensitivity=depthSensitivity;
     this.performance={fps:0,frames:0,start:performance.now(),latency:0,delegate:""};
     this.lastCapture = -Infinity; this.lastVideo = -1;
     this.worker = new Worker(new URL('./worker.mjs?v=fast7', import.meta.url), { type: 'module' });
@@ -36,7 +37,7 @@ export class HeadView {
     const { yaw, pitch } = this.pose.update(now, dt);
     let eye = [...this.window.update(now, dt, this.mode === 'window' || this.mode === 'first')];
     this.origin=firstPersonOrigin(this.window.neutral,this.video.videoWidth/this.video.videoHeight,this.hfov);
-    if (this.mode === 'first') eye=gentleHeadTranslation(eye,this.origin[2]);
+    if (this.mode === 'first') eye=gentleHeadTranslation(eye,this.origin[2],Number(this.lateralSensitivity?.value ?? 2),Number(this.depthSensitivity?.value ?? 2));
     this.camera.position.set(...eye);
     this.camera.rotation.set(this.mode === 'window' ? 0 : pitch, this.mode === 'window' ? 0 : yaw, 0, 'YXZ');
     this.camera.updateProjectionMatrix();

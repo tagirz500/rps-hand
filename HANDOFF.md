@@ -63,7 +63,8 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
 3. Rotation uses a 1.43-degree dead zone, adjustable yaw gain (default 1.5x), and
    pitch gain at 60% of yaw gain. Limits are +/-180 degrees yaw and +/-74.5 pitch.
 4. Position estimates depth from facial span relative to neutral and an assumed
-   90mm outer-eye span. Movement gain is 2x, bounded to 0.50m horizontally/in depth
+   90mm outer-eye span. Left/right and forward/back movement gains are separately adjustable from 0–4x
+   (default 2x, zero disables that axis), independent of head angles. Travel is bounded to 0.50m horizontally/in depth
    and 0.30m vertically. Rotation is never applied to this position vector.
    Holding still does not drift; the mapping is an offset, not movement velocity.
 5. Adaptive filters use 12ms time constants for fast changes, 30ms for small
