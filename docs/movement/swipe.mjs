@@ -41,11 +41,11 @@ export class SwipeController{
 
 // Input pixels are unmirrored; MediaPipe handedness assumes mirrored selfie pixels.
 // Therefore raw Right identifies the user's physical left hand.
-export function selectLeftHand(result){
+export function selectLeftHand(result,minConfidence=.7){
  const matches=[];
  for(let i=0;i<(result.landmarks?.length||0);i++){
   const h=result.handedness?.[i]?.[0];
-  if(h?.categoryName==='Right'&&h.score>=.7)matches.push(i);
+  if(h?.categoryName==='Right'&&h.score>=minConfidence)matches.push(i);
  }
  return matches.length===1?matches[0]:-1;
 }

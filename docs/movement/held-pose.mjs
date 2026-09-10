@@ -12,9 +12,9 @@ export function poseFeature(p){
 export const poseDistance=(a,b)=>Math.sqrt(a.reduce((sum,v,i)=>sum+(v-b[i])**2,0)/a.length);
 export class HeldPose {
  constructor(){this.templates={};this.speed=3;this.reset();}
- reset(){this.direction=null;this.candidate=null;this.count=0;this.seen=-Infinity;}
+ reset(){this.direction=null;this.candidate=null;this.count=0;this.seen=-Infinity;this.reason='NO THUMB POSE';}
  get ready(){return Object.keys(DIRECTIONS).every(k=>this.templates[k]?.length===60);}
- load(value){if(value&&Object.keys(DIRECTIONS).every(k=>value[k]?.length===60&&value[k].every(Number.isFinite)))this.templates=value;}
+ load(value){if(value)for(const k of Object.keys(DIRECTIONS)){if(value[k]?.length===60&&value[k].every(Number.isFinite))this.templates[k]=value[k];}}
  learn(direction,samples){
   if(!DIRECTIONS[direction]||samples.length<8)return 'Keep the pose visible a little longer.';
   const mean=samples[0].map((_,i)=>samples.reduce((s,p)=>s+p[i],0)/samples.length);
@@ -23,16 +23,16 @@ export class HeldPose {
   this.templates[direction]=mean;this.reset();return null;
  }
  receive(feature,time){
-  if(!this.ready||!feature){this.reset();return;}
+  if(!this.ready||!feature){this.reset();this.reason=!this.ready?'NO REFERENCES':'OPEN HAND / LANDMARKS UNCLEAR';return;}
   const ranked=Object.entries(this.templates).map(([k,p])=>[k,poseDistance(p,feature)]).sort((a,b)=>a[1]-b[1]);
   const [best,distance]=ranked[0];
-  if(distance>.28||ranked[1][1]-distance<.045){this.reset();return;}
+  if(distance>.28||ranked[1][1]-distance<.045){this.reset();this.reason=distance>.28?'POSE DOES NOT MATCH PHOTOS':'BETWEEN TWO DIRECTIONS';return;}
   this.seen=time;
   if(best!==this.candidate){this.direction=null;this.candidate=best;this.count=1;}else this.count++;
-  if(this.count>=2)this.direction=best;
+  if(this.count>=2){this.direction=best;this.reason='MOVING';}else this.reason='CONFIRMING '+best.toUpperCase();
  }
  step(now,dt){
-  if(now-this.seen>220){this.reset();return {dx:0,dz:0};}
+  if(now-this.seen>350){this.reset();return {dx:0,dz:0};}
   const [x,z]=DIRECTIONS[this.direction]??[0,0],distance=this.speed*Math.max(0,Math.min(.05,dt));
   return {dx:x*distance,dz:z*distance};
  }

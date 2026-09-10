@@ -54,13 +54,14 @@
     <button class="big" id="pickTrack">📱 TRACK MY HAND - camera only, send to a screen</button>
     <button class="big pc" id="pickScreen">🖥 SCREEN - show the 3D view (gives a code + QR)</button>
     <button class="big both" id="pickBoth">📱+🖥 BOTH - camera and 3D on this device</button>
+    <button class="big pc" id="pickMap">🗺 MAP on this PC - phone as camera (Dust II)</button>
   </div>
 </div>
 <div id="app">
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 41)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 42)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -96,7 +97,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 41;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 42;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -1167,6 +1168,7 @@ else {   // ask what this device does
   $("pickTrack").onclick = () => location.search = "?role=track";
   $("pickScreen").onclick = () => location.search = "?screen";
   $("pickBoth").onclick = () => location.search = "?role=both";
+  $("pickMap").onclick = () => location.href = "movement/?cam";
 }
 </script>
 </body>

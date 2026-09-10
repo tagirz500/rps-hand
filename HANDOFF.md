@@ -990,3 +990,18 @@ HUD says "at your right (yellow ring)". Owner: "make a FOV slider because you ke
 TILT (look-at height) sliders; values live in `CAM`, saved in localStorage `rpsh_cam`, applied through `applyView`.
 Gotcha: a button with id `cam` collided with `<video id="cam">`, so the button is `camBtn`. Verified: sliders
 change `camera.fov`/position live and survive a reload.
+
+## 30. Build 42: the brother's Dust II movement build inside our site, phone as camera (2026-09-11)
+
+Owner: take his Dust II movement page (d14life fork, movement v54), add a phone-as-camera link by QR, push it to HIS
+repo, and merge it into ours too. Done three ways:
+- Branch `phone-camera` (on the fork's head) with `docs/movement/camlink.mjs` + `camera.html` + small `app.mjs` /
+  `index.html` edits: PR https://github.com/d14life/rps-hand/pull/1 (I cannot push to d14life; he merges).
+- Hosted from that branch as a second site: https://tagirz500.github.io/rps-map/movement/?cam
+- Merged into our main as `docs/movement/` (+ his newer `docs/head/`, `docs/world/`); our `index.html` untouched apart from
+  a MAP button on the start screen -> `movement/?cam`. Live: https://tagirz500.github.io/rps-hand/movement/?cam
+How it works: the PC page registers `rpsh-cam-<3 digits>` at the PeerJS broker, shows code + QR of
+`camera.html?cam=<code>`; the phone page opens its front camera and CALLS the PC (WebRTC media); the PC uses the
+MediaStream as its webcam, so his hand tracker, thumb joystick and head look run on the PC GPU. ~100-200 ms extra
+latency vs tracking on the phone. Tested with Edge's fake camera fed from `rps_cam.mjpeg` (scratch; make with
+ffmpeg from docs/test/rps.webm): code + QR, phone "streaming", PC video 640x480, tracker 19-51 ms, no errors.
