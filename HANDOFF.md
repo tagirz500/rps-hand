@@ -5,7 +5,19 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?recline=5
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?edge=7
+
+## Latest: camera-edge face recovery
+
+The face pipeline now retains moderately out-of-frame predicted landmarks with
+reduced weight, retries detector misses on a padded canvas, and bridges short
+misses with correlation of visible eye/nose/forehead patches. Position and angle
+velocity coast briefly, saturate, then hold. All recovered samples still pass the
+3D solver's quality, depth, reprojection and motion gates. See `head/edge.mjs`,
+`edge.test.mjs`, `edge-verify.html` and the Camera-edge recovery section of
+`head/CALIBRATION.md`. The test page passed all near-half-face positions for two
+real horizontal fixtures and one vertical fixture; phone camera behavior still
+depends on lighting, blur, which eye features remain, and the browser.
 
 ## Latest: optional body assistance and reclined play
 

@@ -45,20 +45,24 @@ function solve(a,b){
 // Small six-parameter perspective fit; no second vision model or extra WASM.
 // Robust weighted LM jointly fits orientation and eye-origin translation.
 export function fitHead(points,aspect,prior,hfov=Math.PI/3,previous=null){
- if(!prior||!Number.isFinite(aspect)||aspect<=0||prior.span<.04)return null;
- const samples=template.filter(({id})=>points[id]&&[points[id].x,points[id].y].every(Number.isFinite)&&points[id].x>=0&&points[id].x<=1&&points[id].y>=0&&points[id].y<=1)
-  .map(({id,point})=>({point,uv:[points[id].x-.5,(points[id].y-.5)/aspect]}));
- if(samples.length<16)return null;
+ if(!prior||!Number.isFinite(aspect)||aspect<=0||prior.span<.025)return null;
+ // FaceLandmarker can predict a cropped landmark slightly outside the image.
+ // Keep those predictions near an edge, but give them less influence than pixels
+ // that are actually visible. A previous fit stabilizes the reduced half-face fit.
+ const samples=template.filter(({id})=>points[id]&&[points[id].x,points[id].y].every(Number.isFinite)&&points[id].x>=-.32&&points[id].x<=1.32&&points[id].y>=-.32&&points[id].y<=1.32)
+  .map(({id,point})=>{const p=points[id],outside=Math.max(0,-p.x,p.x-1,-p.y,p.y-1);return {point,uv:[p.x-.5,(p.y-.5)/aspect],confidence:outside?Math.max(.18,1-outside/.38):1};});
+ const visible=samples.filter(({confidence})=>confidence===1).length;
+ if(samples.length<(previous?8:12)||visible<(previous?4:8))return null;
  const focal=1/(2*Math.tan(hfov/2)),depth=bound(focal*.09/prior.span,.18,2);
  const fresh=[-prior.pitch,prior.yaw,Math.atan2((points[263].y-points[33].y)/aspect,points[263].x-points[33].x),(prior.centerX-.5)*depth/focal,(prior.centerY-.5)*depth/(focal*aspect),depth];
  const residual=p=>samples.flatMap(({point,uv})=>project(point,p,focal).map((v,i)=>v-uv[i]));
- const cost=rs=>rs.reduce((s,r)=>s+(Math.abs(r)<=.008?r*r:.016*Math.abs(r)-.000064),0);
+ const cost=rs=>rs.reduce((sum,r,i)=>{const w=samples[Math.floor(i/2)].confidence;return sum+w*(Math.abs(r)<=.008?r*r:.016*Math.abs(r)-.000064);},0);
  let p=previous&&cost(residual(previous))<cost(residual(fresh))?[...previous]:fresh,lambda=.0001;
  for(let iter=0;iter<14;iter++){
   const rs=residual(p),cols=p.map((_,j)=>{const q=[...p],eps=j<3?1e-4:1e-5;q[j]+=eps;return residual(q).map((v,i)=>(v-rs[i])/eps);});
   const a=Array.from({length:6},()=>Array(6).fill(0)),b=Array(6).fill(0);
   for(let i=0;i<rs.length;i++){
-   const w=Math.min(1,.008/Math.max(1e-9,Math.abs(rs[i])));
+   const w=samples[Math.floor(i/2)].confidence*Math.min(1,.008/Math.max(1e-9,Math.abs(rs[i])));
    for(let j=0;j<6;j++){b[j]-=w*cols[j][i]*rs[i];for(let k=0;k<6;k++)a[j][k]+=w*cols[j][i]*cols[k][i];}
   }
   for(let j=0;j<6;j++)a[j][j]+=lambda*(1+a[j][j]);
@@ -69,20 +73,22 @@ export function fitHead(points,aspect,prior,hfov=Math.PI/3,previous=null){
  }
  const rs=residual(p),error=Math.sqrt(rs.reduce((s,r)=>s+r*r,0)/samples.length),r=rotation(p);
  if(!p.every(Number.isFinite)||error>Math.min(.025,prior.span*.12)||p[5]<.18||p[5]>2||r[8]<.25)return null;
- const inliers=rs.filter(v=>Math.abs(v)<.012).length/rs.length;
- if(inliers<.75)return null;
- return {position:p.slice(3),yaw:Math.atan2(r[2],r[8]),pitch:Math.atan2(r[5],Math.hypot(r[2],r[8])),error,quality:inliers,parameters:p};
+ const inliers=rs.reduce((n,v,i)=>n+(Math.abs(v)<.014?samples[Math.floor(i/2)].confidence:0),0)/rs.reduce((n,_,i)=>n+samples[Math.floor(i/2)].confidence,0);
+ const edge=Math.min(points[33]?.x??.5,1-(points[33]?.x??.5),points[263]?.x??.5,1-(points[263]?.x??.5));
+ if(inliers<(visible<12?.62:.72))return null;
+ return {position:p.slice(3),yaw:Math.atan2(r[2],r[8]),pitch:Math.atan2(r[5],Math.hypot(r[2],r[8])),error,quality:inliers,visiblePoints:visible,edge,parameters:p};
 }
 
 export class SpatialPose{
- constructor(){this.neutral=null;this.scale=1;this.seen=-Infinity;this.target=[0,0,0];this.eye=[0,0,0];this.latest=null;this.pending=null;this.recoveryUntil=0;}
- recenter(){this.neutral=null;this.target=[0,0,0];this.eye=[0,0,0];this.latest=null;this.pending=null;this.seen=-Infinity;}
+ constructor(){this.neutral=null;this.scale=1;this.seen=-Infinity;this.target=[0,0,0];this.eye=[0,0,0];this.velocity=[0,0,0];this.latest=null;this.pending=null;this.recoveryUntil=0;}
+ recenter(){this.neutral=null;this.target=[0,0,0];this.eye=[0,0,0];this.velocity=[0,0,0];this.latest=null;this.pending=null;this.seen=-Infinity;}
  calibrate(samples,distance=null){
   const center=[0,1,2].map(i=>median(samples.map(s=>s.position[i])));
   this.neutral=center;this.scale=distance?bound(distance/center[2],.4,2.5):1;this.target=[0,0,0];this.eye=[0,0,0];
  }
  receive(fit,now){
-  if(!fit||fit.position?.length!==3||!fit.position.every(Number.isFinite)||fit.position[2]<.18||fit.position[2]>2||(fit.quality??1)<.75)return false;
+  const requiredQuality=(fit?.visiblePoints??23)<12?.62:.72;
+  if(!fit||fit.position?.length!==3||!fit.position.every(Number.isFinite)||fit.position[2]<.18||fit.position[2]>2||(fit.quality??1)<requiredQuality)return false;
   if(this.latest){
    const elapsed=(now-this.seen)/1000,jump=Math.hypot(...fit.position.map((v,i)=>v-this.latest.position[i]));
    // Corroborate isolated jumps with another camera frame; preserve fast normal motion.
@@ -93,14 +99,19 @@ export class SpatialPose{
    if(now-this.seen>650)this.recoveryUntil=now+350;
   }
   this.pending=null;
-  this.latest=fit;this.seen=now;this.neutral??=[...fit.position];
+  const previousSeen=this.seen;this.latest=fit;this.seen=now;this.neutral??=[...fit.position];
   const raw=fit.position.map((v,i)=>(v-this.neutral[i])*this.scale*(i<2?-1:1));
-  this.target=raw.map((v,i)=>bound(v,i===1?-.3:-.5,i===1?.3:.5));
+  const next=raw.map((v,i)=>bound(v,i===1?-.3:-.5,i===1?.3:.5));
+  const elapsed=(now-previousSeen)/1000;
+  if(Number.isFinite(elapsed)&&elapsed>.008&&elapsed<.25)this.velocity=next.map((v,i)=>bound((v-this.target[i])/elapsed,-1.2,1.2)*.45+this.velocity[i]*.55);
+  else this.velocity=[0,0,0];
+  this.target=next;
   return true;
  }
  update(now,dt,enabled=true){
   // Hold position through loss rather than moving the player back to the origin.
-  const target=enabled?this.target:[0,0,0];
+  const age=Math.max(0,(now-this.seen)/1000),coast=.12*(1-Math.exp(-Math.min(age,.38)/.12));
+  const target=enabled?this.target.map((v,i)=>bound(v+this.velocity[i]*coast,i===1?-.3:-.5,i===1?.3:.5)):[0,0,0];
   const moving=Math.hypot(...target.map((v,i)=>v-this.eye[i]))>.008;
   const a=1-Math.exp(-Math.min(dt,.1)/(now<this.recoveryUntil?.12:moving?.016:.055));
   this.eye=this.eye.map((v,i)=>enabled?v+(target[i]-v)*a:0);return this.eye;

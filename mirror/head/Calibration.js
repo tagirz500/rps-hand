@@ -1,4 +1,4 @@
-import {NeutralCapture} from './spatial.mjs?v=recline5';
+import {NeutralCapture} from './spatial.mjs?v=edge7';
 const $=id=>document.getElementById(id);
 export class Calibration{
  constructor(head=null,body=null){

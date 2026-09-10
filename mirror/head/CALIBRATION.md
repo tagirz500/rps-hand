@@ -35,6 +35,24 @@ iterations, and rejects insufficient correspondences, excessive error,
 behind-camera orientations and implausible distances. This is a custom PnP-style
 iterative solver; it does not call OpenCV or load another neural network.
 
+## Camera-edge recovery
+
+Near a camera edge, the solver accepts FaceLandmarker's predicted points up to
+32 percent beyond the image and weights them below actually visible points. A
+continuing track may fit from eight selected points when at least four remain
+inside; a new track requires twelve selected points, eight visible. Reduced
+fits use the prior 3D pose and still pass reprojection, inlier, depth, orientation
+and motion checks.
+
+If FaceLandmarker misses after a known edge pose, the worker retries once on a
+black-padded canvas, then uses normalized patch correlation on visible eye,
+nose and forehead features for at most 450ms. Patch motion only translates the
+last landmarks in the image plane; the perspective solver remains responsible
+for the accepted 3D pose. If neither method works, linear/angular velocity coasts
+for about 350ms and saturates, then the last accepted view holds. Tracking does
+not continue indefinitely without image evidence. OffscreenCanvas-free browsers
+skip both image fallbacks and retain the bounded motion/hold behavior.
+
 After neutral subtraction, camera coordinates map to player `[-dx,-dy,dz]`.
 Apply optional measured-distance scale once, then each independent movement
 slider once. Never apply view yaw to the translation vector. Fast translation
@@ -78,6 +96,10 @@ check pure rotation and several translations/depths, scale, and neutral capture.
 position and reprojection error for the included photo. Add `?rotate=90` to test
 the detector with a sideways reference image. Low reprojection error
 is not proof of correct physical depth or a perfect match to every face.
+`mirror/head/edge-verify.html` moves a real photo across left/right or top/bottom
+edges. Use `?photo=thumbs_up.jpg` for the second face and `?axis=y` vertically.
+The checked fixtures retained every near-half-face horizontal and vertical edge
+position; this is evidence for those images, not a guarantee for all faces.
 
 Runtime head estimation remains monocular and approximate. Individual geometry,
 occlusion, lighting and unmeasured camera intrinsics affect results. Body pelvis

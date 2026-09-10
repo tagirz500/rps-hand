@@ -73,24 +73,34 @@ export function gentleHeadTranslation(offset, depth, lateralGain = 2, depthGain 
 }
 
 export class ViewPose {
-  constructor() { this.mode = 'head'; this.sensitivity=5; this.physicalYaw=0; this.physicalPitch=0;this.physicalRoll=0;this.recoveryUntil=0; this.neutral = null; this.latest = null; this.seen = -Infinity; this.yaw = 0; this.pitch = 0; }
-  recenter() { this.neutral = null; this.latest = null; }
+  constructor() { this.mode = 'head'; this.sensitivity=5; this.physicalYaw=0; this.physicalPitch=0;this.physicalRoll=0;this.angularVelocity=[0,0,0];this.recoveryUntil=0; this.neutral = null; this.latest = null; this.seen = -Infinity; this.yaw = 0; this.pitch = 0; }
+  recenter() { this.neutral = null; this.latest = null;this.angularVelocity=[0,0,0]; }
+  measurement(pose){
+    if(!pose||!this.neutral)return {yaw:0,pitch:0,roll:0};
+    if(pose.fit?.parameters&&this.neutral.fit?.parameters)return relativeAngles(pose.fit.parameters,this.neutral.fit.parameters);
+    return {yaw:-(pose.yaw-this.neutral.yaw),pitch:pose.pitch-this.neutral.pitch,roll:0};
+  }
   receive(pose, now) {
     if (!pose) return;
     if(Number.isFinite(this.seen)&&now-this.seen>650)this.recoveryUntil=now+350;
     // Reacquisition uses a fresh neutral rather than jumping to an old offset.
     if (now - this.seen > 1500 && !this.preserveNeutral) this.neutral = null;
+    const previous=this.measurement(this.latest),elapsed=(now-this.seen)/1000;
     this.latest = pose; this.seen = now;
     this.neutral ??= { ...pose };
+    const next=this.measurement(pose),wrap=v=>Math.atan2(Math.sin(v),Math.cos(v));
+    if(Number.isFinite(elapsed)&&elapsed>.008&&elapsed<.25)this.angularVelocity=[next.yaw-previous.yaw,next.pitch-previous.pitch,wrap(next.roll-previous.roll)].map((v,i)=>clamp(v/elapsed,i===2?2.5:3)*.4+this.angularVelocity[i]*.6);
+    else this.angularVelocity=[0,0,0];
   }
   update(now, dt) {
     let yaw = 0, pitch = 0, physicalYaw=0, physicalPitch=0,physicalRoll=0;
     if (this.mode !== 'off' && this.latest && this.neutral && (now - this.seen < 650||this.preserveNeutral)) {
       // n points INTO the head (+z), opposite the viewing direction. With the
       // image mirrored, a positive plane yaw looks screen-right (negative camera yaw).
-      physicalYaw=-(this.latest.yaw-this.neutral.yaw);
-      physicalPitch=this.latest.pitch-this.neutral.pitch;
-      if(this.latest.fit?.parameters&&this.neutral.fit?.parameters){const relative=relativeAngles(this.latest.fit.parameters,this.neutral.fit.parameters);physicalYaw=relative.yaw;physicalPitch=relative.pitch;physicalRoll=clamp(relative.roll,.75);}
+      const relative=this.measurement(this.latest),age=Math.max(0,(now-this.seen)/1000),coast=.1*(1-Math.exp(-Math.min(age,.35)/.1));
+      physicalYaw=relative.yaw+this.angularVelocity[0]*coast;
+      physicalPitch=relative.pitch+this.angularVelocity[1]*coast;
+      physicalRoll=clamp(relative.roll+this.angularVelocity[2]*coast,.75);
       const deadzone=v=>Math.sign(v)*Math.max(0,Math.abs(v)-.025);
       yaw=this.mode==='first'?deadzone(physicalYaw)*this.sensitivity:physicalYaw*.65;
       pitch=this.mode==='first'?deadzone(physicalPitch)*this.sensitivity*.6:physicalPitch*.65;

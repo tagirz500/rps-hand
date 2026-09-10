@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Face edge tracking test</title><style>body{margin:20px;background:#172633;color:#eef3f7;font:15px system-ui}canvas{width:min(420px,100%);background:#050a0e}table{border-collapse:collapse;margin-top:14px}td,th{border:1px solid #536d7d;padding:7px;text-align:left}.pass{color:#76e39d}.fail{color:#ff9c9c}</style></head><body><h1>Progressive edge-crop tracking</h1><p>This moves a real face from fully visible to roughly half outside each camera edge. It runs the same live worker.</p><canvas width="640" height="960"></canvas><table><thead><tr><th>Frame</th><th>Image shift</th><th>Result</th><th>Visible fit points</th><th>Error</th></tr></thead><tbody></tbody></table><p id="summary" role="status">Loading face model…</p><script type="module">
+const query=new URLSearchParams(location.search),photo=query.get('photo')||'woman_hands.jpg',axis=query.get('axis')==='y'?'y':'x';
+const image=new Image();image.src='../'+photo;await image.decode();
+const canvas=document.querySelector('canvas'),ctx=canvas.getContext('2d'),tbody=document.querySelector('tbody'),summary=document.querySelector('#summary');canvas.width=image.naturalWidth;canvas.height=image.naturalHeight;
+// The fixture's eyes are around x=0.47. At ±0.46 width the closest eye remains at the edge.
+const shifts=[0,-.12,-.24,-.34,-.40,-.44,-.46,-.40,-.24,0,.12,.24,.34,.40,.44,.46,.40,.24,0];let index=0,passes=0,edgePasses=0;
+const worker=new Worker('./worker.mjs?v=edge7',{type:'module'}),timeout=setTimeout(()=>{summary.textContent='FAIL: timeout';worker.terminate();},90000);
+function draw(shift){ctx.fillStyle='#050a0e';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(image,axis==='x'?shift*canvas.width:0,axis==='y'?shift*canvas.height:0,canvas.width,canvas.height);}
+async function send(){draw(shifts[index]);const frame=await createImageBitmap(canvas);worker.postMessage({frame,ts:1000+index*50},[frame]);}
+worker.onerror=e=>{summary.textContent='FAIL: '+e.message;clearTimeout(timeout);};
+worker.onmessage=async({data})=>{
+ if(data.type==='ready'){await send();return;}if(data.type==='error'){summary.textContent='FAIL: '+data.message;return;}
+ const shift=shifts[index],ok=!!data.pose,edge=Math.abs(shift)>=.4;if(ok)passes++;if(ok&&edge)edgePasses++;
+ const row=tbody.insertRow();row.className=ok?'pass':'fail';for(const value of [index,shift.toFixed(2),ok?'TRACKING':data.landmarksDetected?'FIT REJECTED':'FACE LOST',data.pose?.fit?.visiblePoints??'—',data.pose?.fit?.error?.toFixed(4)??'—'])row.insertCell().textContent=value;
+ index++;if(index<shifts.length){await send();return;}clearTimeout(timeout);worker.terminate();
+ const edgeTotal=shifts.filter(x=>Math.abs(x)>=.4).length;summary.className=edgePasses>=edgeTotal-2?'pass':'fail';summary.textContent=`${summary.className==='pass'?'PASS':'FAIL'} (${photo}, ${axis==='x'?'left/right':'top/bottom'}): ${passes}/${shifts.length} frames tracked; ${edgePasses}/${edgeTotal} near-half-face edge frames tracked.`;
+};
+</script></body></html>

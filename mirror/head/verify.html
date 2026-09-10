@@ -3,7 +3,7 @@
 <h1>Face worker verification</h1><p id="status">Loading real face model…</p><img id="photo" src="../woman_hands.jpg">
 <script type="module">
 const status=document.querySelector('#status'), photo=document.querySelector('#photo');
-const worker=new Worker('./worker.mjs?v=recline5',{type:'module'});
+const worker=new Worker('./worker.mjs?v=edge7',{type:'module'});
 const timeout=setTimeout(()=>{status.textContent='FAIL: timeout';worker.terminate()},60000);
 worker.onerror=e=>{status.textContent='FAIL: '+e.message;clearTimeout(timeout)};
 worker.onmessage=async({data})=>{

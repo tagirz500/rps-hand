@@ -1,5 +1,5 @@
-import { ViewPose, windowFrustum, gentleHeadTranslation } from './pose.mjs?v=recline5';
-import {SpatialPose,median} from './spatial.mjs?v=recline5';
+import { ViewPose, windowFrustum, gentleHeadTranslation } from './pose.mjs?v=edge7';
+import {SpatialPose,median} from './spatial.mjs?v=edge7';
 
 export class HeadView {
   constructor(video, camera, { mode, recenter, status, sensitivity, lateralSensitivity, depthSensitivity, verticalSensitivity, hfov = Math.PI/3 }) {
@@ -11,14 +11,14 @@ export class HeadView {
     this.performance={fps:0,frames:0,start:performance.now(),latency:0,delegate:""};
     this.lastCapture = -Infinity; this.lastVideo = -1;
     this.completedFrames=0;
-    this.worker = new Worker(new URL('./worker.mjs?v=recline5', import.meta.url), { type: 'module' });
+    this.worker = new Worker(new URL('./worker.mjs?v=edge7', import.meta.url), { type: 'module' });
     const fail = () => { this.failed = true; this.busy = false; this.worker.terminate(); clearTimeout(this.timer); };
     this.worker.onerror = fail;
     this.worker.onmessage = ({ data }) => {
       if(data.type==='pose')this.completedFrames++;
       if (data.type === 'error') return fail();
       if (data.type === 'ready') { this.performance.delegate=data.delegate; this.ready = true; clearTimeout(this.timer); }
-      if (data.type === 'pose') { this.busy = false; const now=performance.now(); this.performance.frames++; this.performance.latency=now-data.ts; if(now-this.performance.start>=1000){this.performance.fps=Math.round(this.performance.frames*1000/(now-this.performance.start));this.performance.frames=0;this.performance.start=now;} if(this.window.receive(data.pose?.fit, now))this.pose.receive(data.pose, now); }
+      if (data.type === 'pose') { this.busy = false; const now=performance.now(); this.performance.frames++; this.performance.latency=now-data.ts;if(data.recoveredByPadding||data.recoveredByMotion)this.lastEdgeRecovery=now; if(now-this.performance.start>=1000){this.performance.fps=Math.round(this.performance.frames*1000/(now-this.performance.start));this.performance.frames=0;this.performance.start=now;} if(this.window.receive(data.pose?.fit, now))this.pose.receive(data.pose, now); }
     };
     this.timer = setTimeout(fail, 60000);
     mode.onchange = () => { this.mode = mode.value; this.pose.mode = mode.value; this.pose.recenter(); this.window.recenter(); };
@@ -55,6 +55,6 @@ export class HeadView {
       this.camera.projectionMatrix.makePerspective(f.left,f.right,f.top,f.bottom,this.camera.near,this.camera.far);
       this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
     }
-    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Keep your whole face in view · tracking resumes at your saved center' : `Head: ${this.performance.fps} fps · ${Math.round(this.performance.latency)} ms · depth estimated`;
+    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Keep either eye and part of your face in view · position held' : now-this.pose.seen>100?'Face partly lost · continuing last motion':now-(this.lastEdgeRecovery??-Infinity)<250?'Face at camera edge · recovered':`Head: ${this.performance.fps} fps · ${Math.round(this.performance.latency)} ms · depth estimated`;
   }
 }
