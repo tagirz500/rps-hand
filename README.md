@@ -3,7 +3,7 @@
 Start with **[HANDOFF.md](HANDOFF.md)** for the complete current method, file map,
 run instructions, validation, limitations and links to earlier hand components.
 
-- [Live seated-first head and body app](https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?seated=2)
+- [Live seated-first head and body app](https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?edge=8)
 - [Current app source](mirror/index.html)
 - [Tracking implementation](mirror/head/)
 - [Upper-body tracking and calibration](mirror/body/)

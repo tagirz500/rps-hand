@@ -55,6 +55,6 @@ export class HeadView {
       this.camera.projectionMatrix.makePerspective(f.left,f.right,f.top,f.bottom,this.camera.near,this.camera.far);
       this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
     }
-    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Keep either eye and part of your face in view · position held' : now-this.pose.seen>100?'Face partly lost · continuing last motion':now-(this.lastEdgeRecovery??-Infinity)<250?'Face at camera edge · recovered':`Head: ${this.performance.fps} fps · ${Math.round(this.performance.latency)} ms · depth estimated`;
+    this.status.textContent = this.mode === 'off' ? 'View paused' : this.failed ? 'Head tracking unavailable — reload to try again' : !this.ready ? 'Loading head tracking…' : now-this.pose.seen > 650 ? 'Head fully out of frame · visible shoulders and arms still track' : now-this.pose.seen>100?'Face partly lost · continuing last motion':now-(this.lastEdgeRecovery??-Infinity)<250?'Face at camera edge · recovered':`Head: ${this.performance.fps} fps · ${Math.round(this.performance.latency)} ms · depth estimated`;
   }
 }

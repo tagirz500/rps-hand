@@ -12,10 +12,10 @@ const median=a=>[...a].sort((x,y)=>x-y)[Math.floor(a.length/2)];
 // Patch correlation bridges brief detector misses at the frame boundary. It only
 // estimates image translation from visible facial features; 3D pose stays with
 // the perspective solver and its existing plausibility checks.
-export function trackFeatureTranslation(previous,current,points,{radius=3,search=28}={}){
+export function trackFeatureTranslation(previous,current,points,{radius=3,search=28,anchorIds=anchors}={}){
  if(!previous||!current||previous.width!==current.width||previous.height!==current.height||!points)return null;
  const {width,height}=previous,matches=[];
- for(const id of anchors){
+ for(const id of anchorIds){
   const point=points[id];if(!point)continue;
   const x=Math.round(point.x*width),y=Math.round(point.y*height);
   if(x<radius||x>=width-radius||y<radius||y>=height-radius)continue;

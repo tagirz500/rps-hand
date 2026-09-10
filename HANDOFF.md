@@ -5,14 +5,30 @@ model, editable Blender sources, processing script and tests. The current runnab
 app is `mirror/index.html`. It has no hand detector, hand renderer, grabbing or eye
 tracking. The separate root `index.html` is the older upstream RPS application.
 
-Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?edge=7
+Live app: https://sculpture-hand-motion.fy71209.chatgpt.site/mirror/?edge=8
+
+## Latest: body and arm edge recovery
+
+Body tracking no longer rejects the whole pose when one shoulder, one arm, the
+hips, or the head crosses a camera boundary. Each visible shoulder, elbow and
+wrist updates independently. A missing shoulder is reconstructed from the last
+connected torso, while a missing arm relaxes instead of freezing. If the head
+leaves first, visible shoulders temporarily anchor the arms to the existing rig.
+
+The body worker now retries difficult edge frames on a padded canvas and bridges
+brief detector gaps with image-feature motion from face, shoulder, elbow and wrist
+patches. Partially visible bodies stay at the normal inference rate. After all
+upper-body evidence disappears, joints clear after 220ms and the rig eases to its
+relaxed pose. `mirror/body/edge-verify.html` covers left/right, top/bottom and a
+complete exit. The real-model browser checks passed 19/19 horizontal frames,
+19/19 vertical frames, and followed nine progressive exit frames before clearing.
 
 ## Latest: camera-edge face recovery
 
 The face pipeline now retains moderately out-of-frame predicted landmarks with
 reduced weight, retries detector misses on a padded canvas, and bridges short
 misses with correlation of visible eye/nose/forehead patches. Position and angle
-velocity coast briefly, saturate, then hold. All recovered samples still pass the
+velocity coasts briefly and saturates. All recovered samples still pass the
 3D solver's quality, depth, reprojection and motion gates. See `head/edge.mjs`,
 `edge.test.mjs`, `edge-verify.html` and the Camera-edge recovery section of
 `head/CALIBRATION.md`. The test page passed all near-half-face positions for two
@@ -28,14 +44,14 @@ optional view roll is half strength and defaults off. Independent XYZ movement
 gains remain. No shoulders are required for camera control.
 
 Position/rotation outliers need corroboration; weak perspective fits are rejected.
-The view holds through face loss and blends recovery instead of returning home.
-Body assistance releases stale joints, eases arms to a relaxed pose, and reduces
-body inference after repeated misses. The mesh now has 15 bones including four
+The view blends recovery instead of returning home. Body assistance releases
+stale joints after 220ms, eases arms to a relaxed pose, follows visible arms even
+after the head leaves, and reduces body inference only after complete misses. The mesh now has 15 bones including four
 twist helpers, plus four elbow/shoulder volume correctives. See
 `mirror/head/CALIBRATION.md` and `mirror/avatar/RIG.md` for implementation details.
 
-Validation: six Node test files pass; browser checks pass for seven rig scenarios,
-real cropped-body inference and a rotated real face photo. These do not establish
+Validation: seven Node test files pass; browser checks pass for seven rig scenarios,
+real cropped-body inference, progressive body-edge/exit sequences and a rotated real face photo. These do not establish
 phone latency or robustness to every pillow/lighting/occlusion condition.
 
 ## Connected upper-body rig (latest)
@@ -77,9 +93,10 @@ describes remaining camera/face calibration limits.
 | `mirror/head/verify.html` | Real face-model inference against an included photo without camera access |
 | `mirror/body/worker.mjs` | Real Pose Landmarker Lite in a module worker, no segmentation |
 | `mirror/body/BodyView.js` | Shared camera, two-face/one-body inference schedule, mode and status |
-| `mirror/body/pose.mjs` | Visible upper-body joints, seated/standing calibration and filtered relative geometry |
+| `mirror/body/pose.mjs` | Partial upper-body joints, connected-shoulder recovery, seated/standing calibration and filtered relative geometry |
 | `mirror/body/TrackedBody.js` | Articulated torso and arms ending at wrists; first/third person and mirror |
 | `mirror/body/verify.html` | Real-model reference photo, cropped-upper-body and standing checks |
+| `mirror/body/edge-verify.html` | Real Pose Lite left/right, top/bottom and full-exit tracking sequences |
 | `mirror/body/*.test.mjs` | Coordinate, occlusion, calibration and inference scheduling tests |
 | `mirror/avatar/TrackedHead.js` | Local sculpture avatar and collapsible preview; layer separation for first person/reflection |
 | `mirror/avatar/head.glb` | Cropped, capped, optimized sculpture head, about 1.18 MB |
@@ -133,7 +150,7 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    and 0.30m vertically. Rotation is never applied to this position vector.
    Holding still does not drift; the mapping is an offset, not movement velocity.
 5. Rotation filters use 12ms/30ms time constants; position uses 16ms/55ms for
-   moving/quiet estimates. Face loss eases home after 650ms. Reacquisition keeps
+   moving/quiet estimates. Face loss coasts briefly with bounded velocity. Reacquisition keeps
    the saved neutral; use Recenter after moving the phone or changing seats.
 6. First-person camera uses the resulting rotation and position. The independent
    third-person camera shows the same head from outside. First person has a
@@ -145,8 +162,9 @@ Open `http://localhost:8000/mirror/head/verify.html` for real model verification
    calibrate body proportions. Seated mode allows 6cm of lean, then moves the
    whole body with the head. A bounded neck shifts shoulders/arms together when
    tracking would otherwise stretch it. Standing requires visible hips.
-   After 500ms without usable shoulders, seated mode holds the last arm pose
-   while following a visible head, labels the fallback and clears body signals.
+   At an image edge, visible shoulder/elbow/wrist joints keep updating independently.
+   If the head has left, shoulders anchor the arm geometry. After 220ms with no
+   upper-body evidence, tracked joints clear and the arms relax; no stale pose is held.
 9. Body world landmarks are hip-relative shape, not absolute position. Subtract
    pose eyes 2/5, map to the mirrored player frame, then add camera position once.
    Torso/arm articulation comes from pose geometry; navigation turn gain affects
@@ -167,7 +185,7 @@ motion feel, true metric position and whole-system latency still need live tests
 This is approximate monocular head tracking, not calibrated six-degree-of-freedom
 VR. Facial dimensions and camera FOV are assumptions; roll is not tracked. The
 sculpture is rigid, with no facial-expression rig. Keep the phone still and the
-face visible. Third-person inspection and the mirror are diagnostic views, not
+some face, shoulder or arm evidence visible for live tracking. Third-person inspection and the mirror are diagnostic views, not
 proof of anatomical or metric accuracy. No secret/API key is needed.
 
 The static page uses Three.js 0.186.0 and MediaPipe Tasks Vision 1.0.1 from jsDelivr,

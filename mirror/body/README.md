@@ -10,26 +10,31 @@ frames. Calibrate body resets only body proportions; Recenter resets both head
 and body. Head rotation and all three positional sensitivity sliders stay
 independent. Body: off terminates its worker and retains head-only operation.
 
-Seated calibration needs eyes and both shoulders. Its pelvis is an explicitly
+Seated calibration needs a visible face and both shoulders. Its pelvis is an explicitly
 estimated support that allows 6cm of seated lean before carrying the whole body.
 Larger head movements translate the pelvis instead of stretching the torso. The
 neck is bounded to the calibrated length plus 15 percent (maximum 13.8cm), and
 excess displacement shifts shoulders and arms together. Standing calibration and tracking require hips.
-Hidden arm joints are omitted. After 500ms of shoulder loss, seated mode keeps
-the last body pose following a still-visible head and labels the arms as held;
-body signals become null. Standing hides the body. Proportions survive reacquisition. The face must remain in
+At a camera boundary, tracking accepts one shoulder and the visible elbow/wrist,
+reconstructs the cropped shoulder from the connected torso, and relaxes only the
+missing arm. A padded detector retry and short image-feature bridge keep the last
+visible head/arm pixels moving through detector gaps. Once all upper-body evidence
+has left the image for 220ms, tracked joints clear and the rig eases to its relaxed
+pose; it never pins the player's arms in a stale position. Proportions survive reacquisition. The face must remain in
 view to attach the body to the eye position. Keep the camera stationary.
 
 ## Components and coordinates
 
 - `worker.mjs`: pinned Tasks Vision 1.0.1, Pose Lite float16 version 1, VIDEO,
   one person, no segmentation, GPU with CPU fallback.
-- `pose.mjs`: visibility/presence/frame-bound checks, eye-relative body geometry,
-  seated/standing calibration, scale stabilization, 35ms smoothing, loss handling.
+- `pose.mjs`: confidence and relaxed boundary checks, partial-joint recovery,
+  eye-relative body geometry, seated/standing calibration, scale stabilization,
+  35ms smoothing, and prompt loss handling.
 - `BodyView.js`: shares the camera, one body frame in flight, face capture gets
   priority (two face frames per body frame), body and face inference are serialized.
   Nominal body cap is 15fps, reduced to 8fps when either tracker exceeds 65ms.
-  Actual rates depend on device and body inference can reduce head frame rate.
+  A fully missing body is retried at 4fps; a partial edge pose stays at the normal
+  rate. Actual rates depend on device and body inference can reduce head frame rate.
 - `TrackedBody.js`: torso and limb segments built from joint positions. Only its
   origin follows camera position; head look gain never rotates the body joints.
 - `pose.signals`: torso yaw/roll and relative shoulder-to-hip lean X/Z for future gameplay;
@@ -64,6 +69,9 @@ and `node mirror/head/pose.test.mjs`.
 Open `mirror/body/verify.html` to run real Pose Lite inference and calibration
 against Google's MediaPipe reference photo. Add `?crop` for a seated-style crop,
 `?standing` for hip-based calibration, or `?occluded` to check body rejection.
+Open `mirror/body/edge-verify.html` to move the fixture progressively across all
+four camera boundaries and report partial-joint continuity; add `?exit=1` to
+verify tracking stops after the person has completely left the image.
 The reference photo is from https://storage.googleapis.com/mediapipe-assets/pose.jpg
 and is included only as a model verification fixture. Reported inference time excludes the camera and
 rendering; it is not phone sensor-to-screen latency.
