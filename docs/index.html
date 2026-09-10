@@ -58,7 +58,7 @@
   <div class="pane">
     <video id="cam" autoplay muted playsinline></video>
     <canvas id="ov"></canvas>
-    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 36)</div></div>
+    <div class="hud" id="top"><div id="hand">HANDS: -</div><div id="move">MOVE: ?</div><div id="stats">tracker: loading (build 38)</div></div>
     <div id="status">Loading hand tracker…</div>
   </div>
   <div class="pane">
@@ -73,7 +73,7 @@
       <button class="lb go" id="quick">QUICK MATCH</button><button class="lb" id="create">CREATE LOBBY</button><button class="lb" id="refresh">REFRESH</button><button class="lb" id="closeLobby">CLOSE</button>
       <div id="rooms">open lobbies: (tap REFRESH)</div>
     </div>
-    <div class="hud" id="bottom"><div id="score"></div><div id="game"></div><div id="net">offline</div></div>
+    <div class="hud" id="bottom"><div id="score"></div><div id="game"></div><div id="gun" style="color:#ffb07a;font-size:14px"></div><div id="net">offline</div></div>
   </div>
 </div>
 
@@ -86,7 +86,7 @@ import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/
 import { RoomEnvironment } from "https://cdn.jsdelivr.net/npm/three@0.186.0/examples/jsm/environments/RoomEnvironment.js";
 import { createNet, myCode, screenCode } from "./net.mjs";
 
-const BUILD = 36;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
+const BUILD = 38;   // shown in the HUD so a cached page is obvious (GitHub Pages caches for 10 min)
 const $ = id => document.getElementById(id);
 const Q = new URLSearchParams(location.search);
 // Assumed horizontal field of view of the phone camera (?fov=70 to override). Lateral motion does not depend on
@@ -465,6 +465,109 @@ for (const z of [-3.2, 3.2]) {   // a wall behind each player
   wall.position.set(0, FLOOR_Y + 2.5, z); wall.receiveShadow = true; scene.add(wall);
 }
 
+// --- revolver + targets (first person). No mode: a closed hand near the revolver picks it up, the barrel follows the
+// hand (wrist -> middle knuckle), extending and curling the index finger pulls the trigger, an open hand drops it. ------
+const GUN_HOME = new THREE.Vector3(0.2, FLOOR_Y + 0.025, -0.3);   // on the table, to the right, within reach
+const gunMat = new THREE.MeshStandardMaterial({ color: 0x3a3d45, metalness: 0.8, roughness: 0.35 }), woodMat = new THREE.MeshStandardMaterial({ color: 0x6b3f22, roughness: 0.7 });
+function makeRevolver() {   // barrel along local +z, grip down (-y); the muzzle is at (0, 0.03, 0.15)
+  const g = new THREE.Group();
+  const add = (geo, mat, x, y, z, rx = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.rotation.x = rx; m.castShadow = true; g.add(m); return m; };
+  add(new THREE.CylinderGeometry(0.009, 0.009, 0.15, 12), gunMat, 0, 0.03, 0.075, Math.PI / 2);      // barrel
+  add(new THREE.CylinderGeometry(0.021, 0.021, 0.036, 12), gunMat, 0, 0.026, 0.0, Math.PI / 2);     // drum
+  add(new THREE.BoxGeometry(0.02, 0.032, 0.075), gunMat, 0, 0.022, -0.005);                          // frame
+  add(new THREE.BoxGeometry(0.02, 0.065, 0.028), woodMat, 0, -0.022, -0.03, 0.35);                   // grip
+  add(new THREE.TorusGeometry(0.012, 0.002, 6, 12), gunMat, 0, -0.002, 0.012);                       // trigger guard
+  return g;
+}
+const gun = { mesh: makeRevolver(), holder: null, lastShot: 0, shots: 0, hits: 0, prevIdx: {}, tracers: [], webs: 0, lastWeb: 0, prevWeb: {}, strands: [] };
+const webMat = new THREE.MeshStandardMaterial({ color: 0xf4f4f4, emissive: 0x666666, roughness: 0.9 }), webGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1), WEB_UP = new THREE.Vector3(0, 1, 0);
+gun.mesh.position.copy(GUN_HOME); gun.mesh.rotation.set(0, 0, Math.PI / 2); worldGroup.add(gun.mesh);   // lying on its side
+const ringTex = (() => {   // bullseye
+  const c = document.createElement("canvas"); c.width = c.height = 256; const g = c.getContext("2d");
+  [["#f2f2f2", 128], ["#d92b2b", 100], ["#f2f2f2", 72], ["#d92b2b", 44], ["#f2f2f2", 18]].forEach(([col, r]) => { g.fillStyle = col; g.beginPath(); g.arc(128, 128, r, 0, Math.PI * 2); g.fill(); });
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+})();
+const targets = [];
+for (let i = 0; i < 5; i++) {
+  const x = -0.6 + i * 0.3, z = 1.2 + (i % 2) * 0.35;
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.22, 8), gunMat); post.position.set(x, FLOOR_Y + 0.11, z); post.castShadow = true; worldGroup.add(post);
+  const pivot = new THREE.Group(); pivot.position.set(x, FLOOR_Y + 0.22, z); worldGroup.add(pivot);
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.012, 32), [gunMat, new THREE.MeshStandardMaterial({ map: ringTex }), new THREE.MeshStandardMaterial({ map: ringTex })]);
+  disc.rotation.x = Math.PI / 2; disc.position.y = 0.12; disc.castShadow = true; pivot.add(disc);
+  targets.push({ pivot, disc, hitT: 0 });
+}
+const flash = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffe08a })); flash.visible = false; worldGroup.add(flash);
+const ray = new THREE.Raycaster();
+function shootRay(from, dir, now, reach = 4) {   // hitscan against the targets; knocks the hit target over
+  ray.set(from, dir); const hit = ray.intersectObjects(targets.map(t => t.disc), false)[0];
+  if (hit) { const t = targets.find(t => t.disc === hit.object); if (t && !t.hitT) { t.hitT = now; gun.hits++; } }
+  return hit ? hit.point : from.clone().addScaledVector(dir, reach);
+}
+// Spider-Man web: index + pinky out, middle + ring folded. The strand leaves the palm along the palm normal (the side
+// facing the phone, i.e. toward the targets), sticks to what it hits and stays attached to the hand for a second.
+function shootWeb(key, palm, dir, now) {
+  gun.webs++; gun.lastWeb = now;
+  const end = shootRay(palm, dir, now, 3);
+  const m = new THREE.Mesh(webGeo, webMat); m.castShadow = true; worldGroup.add(m);
+  gun.strands.push({ mesh: m, key, end, t: now });
+}
+function fireFrom(muzzle, dir, now) {
+  gun.shots++; gun.lastShot = now;
+  const end = shootRay(muzzle, dir, now);
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([muzzle, end]), new THREE.LineBasicMaterial({ color: 0xfff2b0, transparent: true, opacity: 0.9 }));
+  worldGroup.add(line); gun.tracers.push({ line, t: now });
+  flash.position.copy(muzzle); flash.visible = true; flash.userData.t = now;
+}
+const _gf = V(), _gs = V(), _gu = V(), _gm = new THREE.Matrix4();
+function gunUpdate(now, hands) {   // hands: [{ key, pts }] of the player's own hands as drawn this frame
+  for (const h of hands) {
+    const pts = h.pts, ext = fingersUp(pts), palm = palmCentre(pts);
+    if (Q.get("gunat") === "hand" && !gun.holder && !gun.placed) { gun.mesh.position.copy(palm); gun.placed = true; }   // test hook: the revolver spawns in the hand
+    const webPose = ext[0] && !ext[1] && !ext[2] && ext[3];   // index + pinky out, middle + ring folded (thumb free)
+    if (webPose && !gun.prevWeb[h.key] && now - gun.lastWeb > 400) {
+      _gf.subVectors(pts[9], pts[0]); _gu.subVectors(pts[17], pts[5]); _gs.crossVectors(_gf, _gu).normalize();   // palm normal
+      if (_gs.z < 0) _gs.negate();   // the side that faces the phone points at the targets beyond it
+      shootWeb(h.key, palm.clone().addScaledVector(_gs, 0.02), _gs.clone(), now);
+    }
+    gun.prevWeb[h.key] = webPose;
+    const gripping = !ext[1] && !ext[2] && !ext[3];   // middle, ring, pinky curled: a fist or a finger gun
+    if (!gun.holder && gripping && palm.distanceTo(gun.mesh.position) < 0.14) { gun.holder = h.key; gun.prevIdx[h.key] = ext[0]; }
+    if (gun.holder !== h.key) { gun.prevIdx[h.key] = ext[0]; continue; }
+    if (ext.every(Boolean)) {   // open hand: drop it where it is, back onto the table
+      gun.holder = null; gun.mesh.position.set(palm.x, FLOOR_Y + 0.025, palm.z); gun.mesh.rotation.set(0, 0, Math.PI / 2); continue;
+    }
+    _gf.subVectors(pts[9], pts[0]).normalize();                 // barrel: where the hand points
+    _gu.subVectors(pts[5], pts[17]).normalize();                // index side up, as in a real grip
+    _gs.crossVectors(_gu, _gf).normalize(); _gu.crossVectors(_gf, _gs).normalize();
+    gun.mesh.quaternion.setFromRotationMatrix(_gm.makeBasis(_gs, _gu, _gf));
+    gun.mesh.position.copy(palm).addScaledVector(_gf, 0.05).addScaledVector(_gu, 0.015);
+    if (gun.prevIdx[h.key] && !ext[0] && now - gun.lastShot > 150) {   // trigger: index went from extended to curled
+      const muzzle = gun.mesh.localToWorld(new THREE.Vector3(0, 0.03, 0.15)), dir = gun.mesh.getWorldDirection(V());
+      fireFrom(muzzle, dir, now);
+    }
+    gun.prevIdx[h.key] = ext[0];
+  }
+  if (gun.holder && !hands.some(h => h.key === gun.holder)) { gun.holder = null; gun.mesh.position.y = FLOOR_Y + 0.025; gun.mesh.rotation.set(0, 0, Math.PI / 2); }   // the hand vanished: drop
+  for (const t of targets) {   // knocked-over targets fall back and stand up again after 2 s
+    const goal = t.hitT && now - t.hitT < 2000 ? -Math.PI / 2 : 0;
+    t.pivot.rotation.x += 0.25 * (goal - t.pivot.rotation.x);
+    if (t.hitT && now - t.hitT >= 2000 && Math.abs(t.pivot.rotation.x) < 0.02) t.hitT = 0;
+  }
+  const palms = Object.fromEntries(hands.map(h => [h.key, palmCentre(h.pts)]));
+  gun.strands = gun.strands.filter(w => {
+    const age = now - w.t; if (age > 1400) { worldGroup.remove(w.mesh); return false; }
+    const from = palms[w.key] || w.mesh.userData.from || w.end; w.mesh.userData.from = from;
+    const grow = Math.min(1, age / 120), d = w.end.clone().sub(from), L = d.length() * grow;
+    w.mesh.position.copy(from).addScaledVector(d, grow * 0.5); w.mesh.scale.set(0.003, Math.max(L, 1e-4), 0.003); w.mesh.quaternion.setFromUnitVectors(WEB_UP, d.normalize());
+    w.mesh.material = age > 1100 ? new THREE.MeshStandardMaterial({ color: 0xf4f4f4, transparent: true, opacity: 1 - (age - 1100) / 300 }) : webMat;
+    return true;
+  });
+  gun.tracers = gun.tracers.filter(tr => { const a = 1 - (now - tr.t) / 120; if (a <= 0) { worldGroup.remove(tr.line); return false; } tr.line.material.opacity = a; return true; });
+  if (flash.visible && now - flash.userData.t > 60) flash.visible = false;
+  $("gun").textContent = (gun.holder ? `REVOLVER in hand - point, extend your index and curl it to fire | SHOTS ${gun.shots}` : `REVOLVER on the table - grab it with a fist`) + ` | WEBS ${gun.webs} (index + pinky out, palm to the phone) | HITS ${gun.hits}`;
+}
+window.gunDbg = { gun, targets, fire: (from, dir) => fireFrom(from, dir, performance.now()), web: (key, from, dir) => shootWeb(key, from, dir, performance.now()), update: (hands) => gunUpdate(performance.now(), hands.map(h => ({ key: h.key, pts: h.pts.map(q => new THREE.Vector3(...q)) }))) };   // test hooks
+
 
 // --- skinned hand mesh driven by the 21 tracked points -----------------------------------------------
 // The GLB (docs/hand.glb, built from the owner's hand scan hand1.OBJ; see HANDOFF §22) has one bone per skeleton edge, named
@@ -785,12 +888,14 @@ function onHands(pkt, who) {
   for (const h of pkt.hands) { const r = remoteHand(who + ":" + h.n); r.a = Float32Array.from(h.a); r.t = now; r.m = h.m; }
   if (who === "opp") theirMove = pkt.m ?? null;
 }
-function drawRemote(now) {
+function drawRemote(now) {   // returns the linked phone's own hands (for the screen's revolver)
+  const mine = [];
   for (const [key, r] of remote) {
     if (!r.a || now - r.t > 600) { r.hand.hide(); continue; }
     const pts = toVecs(r.a); if (key.startsWith("opp")) for (const q of pts) { q.x = -q.x; q.z = -q.z; }
-    r.hand.draw(pts);
+    r.hand.draw(pts); if (key.startsWith("me:")) mine.push({ key: key.slice(3), pts });
   }
+  return mine;
 }
 const game = { phase: "idle", t0: 0, my: null, their: null, score: [0, 0], text: "" };
 let theirMove = null;
@@ -846,7 +951,7 @@ async function screenMain() {   // the PC: no camera, no tracker; render the lin
   net = createNet({ status: t => $("net").textContent = t, hands: onHands, game: gameMsg,
     screenReady: showPair, linked: () => { $("pair").hidden = true; }, unlinked: sc => showPair(sc) });
   net.becomeScreen();
-  const loop = () => { drawRemote(performance.now()); $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
+  const loop = () => { const now = performance.now(); gunUpdate(now, drawRemote(now)); $("game").textContent = game.text; applyView(false); renderer.render(scene, camera); requestAnimationFrame(loop); };
   loop();
 }
 async function main() {
@@ -1003,16 +1108,17 @@ async function main() {
       shown[s.key] = s.gl.map((v, i) => v + delta.getComponent(i % 3));
       hud.push(`${s.name[0]} held`); dbg.held++;
     }
+    const mine = [];
     for (const s of [slots.Right, slots.Left]) {
       if (shown[s.key]) {
-        const pts = shape(shown[s.key]);
+        const pts = shape(shown[s.key]); mine.push({ key: s.key, pts });
         const tD = performance.now(); s.hand.draw(pts); dbg.tm.draw += performance.now() - tD; displayed.push(shown[s.key]);
         const pc = palmFlat(shown[s.key]); if (s.lastPalm && pc.distanceTo(s.lastPalm) > 0.1) dbg.dispJumps++; s.lastPalm = pc;   // what the player actually sees jump
       } else { s.hand.hide(); s.lastPalm = null; }
     }
     renderOverlay(displayed);
     { let zMin = 0; for (const a of displayed) zMin = Math.min(zMin, palmFlat(a).z); const target = Math.min(-0.5, zMin - 0.25); eyeZ += 0.08 * (target - eyeZ); }
-    drawRemote(now); updateGame(now, move);
+    drawRemote(now); updateGame(now, move); gunUpdate(now, mine);
     if (now - stat.t > 1000) {
       $("stats").textContent = `tracker: ${(stat.ms / (stat.n || 1)).toFixed(0)} ms | ${stat.n} fps | latency ${(stat.lat / (stat.n || 1)).toFixed(0)} ms | hands ${nHands}\n${tracker.where} | ${SKIN ? (FIT_EXACT ? "mesh exact" : "mesh rigged") : "capsules"} | mode ${MODES[mode]} | tilt ${tiltOn ? (pitch * 180 / Math.PI).toFixed(0) + "°" : "off"} | build ${BUILD}`;
       trackerFps = stat.n; stat = { ms: 0, lat: 0, n: 0, t: now }; dbg.pitch = pitch; dbg.tiltOn = tiltOn;

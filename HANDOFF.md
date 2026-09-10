@@ -947,3 +947,26 @@ fitted the frame's width to a wide PC window and enlarged the hand. The video pa
 in mirror view (`body.mirror`) so video, overlay and 3D mirror all show the same full frame. Because rendering uses
 the same assumed FOV as the back-projection, image positions reproduce exactly whatever the true FOV is (phone
 mirror reproj 0.12 %).
+
+## 29. Builds 37-38: revolver, targets, Spider-Man webs (2026-09-11, early hours)
+
+Owner: "a revolver on the table; pick it up and shoot, infinite shots, targets in front of me, first person, no mode,
+it should just respond"; then "when I do the classic Spider-Man move, shoot webs at the targets" (photo: index + pinky
+out, middle + ring folded, web from the wrist).
+
+- **Revolver** (`makeRevolver`, procedural: barrel along +z, grip -y, muzzle at (0, 0.03, 0.15)) lies on the table at
+  `GUN_HOME` (0.2, table, -0.3). `gunUpdate(now, hands)` runs every frame on the player's own drawn hands (and on the
+  screen on the hands it receives): a gripping hand (middle, ring, pinky curled) within 14 cm picks it up; the barrel
+  follows wrist -> middle knuckle, index side up (`makeBasis`); the trigger is the index finger going from extended to
+  curled (150 ms min gap) = hitscan from the muzzle (`THREE.Raycaster`) + tracer line + muzzle flash; a fully open hand
+  drops it (back to table height); a vanished hand drops it.
+- **Targets**: 5 bullseye discs (canvas ring texture on cylinder caps) on posts at z 1.2-1.55, x -0.6..0.6, centre
+  ~chest height; a hit rotates the pivot to -90° and it stands back up after 2 s. HUD line `#gun`: SHOTS / WEBS / HITS.
+- **Webs**: pose = `ext` [index, middle, ring, pinky] = [1,0,0,1]; on entering the pose (400 ms cooldown) a strand leaves
+  the palm along the palm normal, sign chosen so it points toward +z (the side facing the phone = toward the targets),
+  hitscan like a bullet (`shootRay`), the strand grows out over 120 ms, stays attached to the moving palm, fades after
+  1.1-1.4 s. `gunDbg.update(hands)` drives the logic with synthetic points for tests.
+- Verified (`web_gun_test.py` + a synthetic-pose probe): fist picks up / follows; 5 forced shots = 5 hits, all fall,
+  all stand up; open hands do not pick up; synthetic web pose fires once, no re-fire while held, fires again after
+  relaxing; the PC screen picks the revolver up from the received hand. MediaPipe does not detect the red Spider-Man
+  glove in the owner's photo (gloves/masks defeat the palm detector), so the pose path was proven synthetically.
